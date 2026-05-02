@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor junk
+.DS_Store
+.vscode/
+.idea/
+
+# Optional: runtime artifacts
+dist/
+build/
+coverage/

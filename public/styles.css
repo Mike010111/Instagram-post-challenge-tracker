@@ -1,0 +1,170 @@
+:root {
+  --bg: #fff7ef;
+  --card: #ffffff;
+  --text: #2a1e13;
+  --muted: #907560;
+  --accent: #f18d2e;
+  --accent-soft: #f6b16b;
+  --danger: #f05b49;
+  --good: #2ca17c;
+  --shadow: 0 14px 35px rgba(129, 75, 29, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: radial-gradient(circle at top, #fff0df 0%, var(--bg) 62%);
+  color: var(--text);
+}
+
+.layout {
+  width: min(860px, 94vw);
+  margin: 32px auto 56px;
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+}
+
+.subtitle {
+  margin: 4px 0 10px;
+  color: var(--muted);
+}
+
+.motivation {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 4px solid var(--accent);
+  background: #fff4e8;
+  border-radius: 8px;
+}
+
+.progress-card {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+}
+
+.ring-wrap {
+  width: 220px;
+  height: 220px;
+  position: relative;
+}
+
+.progress-ring {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring-bg,
+.ring-progress {
+  fill: none;
+  stroke-width: 12;
+}
+
+.ring-bg {
+  stroke: #ffe0c2;
+}
+
+.ring-progress {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s ease, stroke 0.4s ease;
+}
+
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.progress-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.big {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.2;
+}
+
+.progress-note {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.stats-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.stat h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.stat p {
+  margin: 8px 0 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.footer-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button:hover {
+  background: #dd7c22;
+}
+
+.error {
+  color: #9f2f22;
+  background: #ffe3dd;
+  border-left-color: var(--danger);
+}
