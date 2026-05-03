@@ -220,6 +220,7 @@ async function fetchInstagramProfileHtml(extraHeaders = {}) {
 
 async function fetchHtmlWithBestEffortParsing() {
   let html = await fetchInstagramProfileHtml();
+  console.log('HTML snippet:', html.substring(0, 500));
   let extracted = extractCountersFromHtml(html);
 
   if (extracted.posts == null || extracted.followers == null) {
@@ -244,6 +245,7 @@ async function fetchFromProfileInfoApi(username) {
     "x-ig-app-id": "936619743392459",
     accept: "application/json",
   });
+  console.log('API raw:', responseText.substring(0, 300));
   const json = JSON.parse(responseText);
   const user = json?.data?.user;
   return {
