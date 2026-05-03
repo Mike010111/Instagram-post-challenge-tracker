@@ -324,6 +324,7 @@ app.get("/api/instagram-stats", async (_req, res) => {
 
     if (currentPosts == null || currentFollowers == null) {
       try {
+        console.log('Trying Instagram API...');
         const fromProfileApi = await fetchFromProfileInfoApi("romejkomart");
         if (currentPosts == null) {
           currentPosts = fromProfileApi.posts;
@@ -331,7 +332,7 @@ app.get("/api/instagram-stats", async (_req, res) => {
         if (currentFollowers == null) {
           currentFollowers = fromProfileApi.followers;
         }
-      } catch (_apiError) {
+      } catch (apiError) {
         console.log('API fetch failed:', apiError.message || apiError);
       }
     }
