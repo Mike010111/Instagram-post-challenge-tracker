@@ -332,7 +332,7 @@ app.get("/api/instagram-stats", async (_req, res) => {
           currentFollowers = fromProfileApi.followers;
         }
       } catch (_apiError) {
-        // HTML already failed partially; API is last resort.
+        console.error('API fetch failed:', apiError.message || apiError);
       }
     }
 
