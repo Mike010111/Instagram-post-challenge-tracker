@@ -106,14 +106,39 @@ function getChallengeYearDayMetrics(now) {
   };
 }
 
-function parseFromWindowPayload(html) {
-  const postsMatch = html.match(/"edge_owner_to_timeline_media"\s*:\s*\{"count"\s*:\s*(\d+)/);
-  const followersMatch = html.match(/"edge_followed_by"\s*:\s*\{"count"\s*:\s*(\d+)/);
+function firstMatchNumber(html, patterns) {
+  for (const re of patterns) {
+    const m = html.match(re);
+    if (m && m[1] != null) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n >= 0) {
+        return n;
+      }
+    }
+  }
+  return null;
+}
 
-  return {
-    posts: postsMatch ? Number(postsMatch[1]) : null,
-    followers: followersMatch ? Number(followersMatch[1]) : null,
-  };
+function parseFromWindowPayload(html) {
+  const posts = firstMatchNumber(html, [
+    /"edge_owner_to_timeline_media"\s*:\s*\{\s*"count"\s*:\s*(\d+)/,
+    /"edge_owner_to_timeline_media"\s*:\s*\{"count"\s*:\s*(\d+)/,
+  ]);
+  const followers = firstMatchNumber(html, [
+    /"edge_followed_by"\s*:\s*\{\s*"count"\s*:\s*(\d+)/,
+    /"edge_followed_by"\s*:\s*\{"count"\s*:\s*(\d+)/,
+  ]);
+
+  return { posts, followers };
+}
+
+function parseFromJsonSnippets(html) {
+  const posts = firstMatchNumber(html, [/"media_count"\s*:\s*(\d+)/]);
+  const followers = firstMatchNumber(html, [
+    /"follower_count"\s*:\s*(\d+)/,
+    /"followers_count"\s*:\s*(\d+)/,
+  ]);
+  return { posts, followers };
 }
 
 function parseFromMetaDescription(html) {
@@ -128,11 +153,11 @@ function parseFromMetaDescription(html) {
   }
 
   const followersMatch =
-    description.match(/([\d.,\s]+)\s+Followers/i) ||
-    description.match(/([\d.,\s]+)\s+подписчик/i);
+    description.match(/([\d.,\s\u00A0]+)\s+Followers/i) ||
+    description.match(/([\d.,\s\u00A0]+)\s+подписчик/i);
   const postsMatch =
-    description.match(/([\d.,\s]+)\s+Posts/i) ||
-    description.match(/([\d.,\s]+)\s+публикац/i);
+    description.match(/([\d.,\s\u00A0]+)\s+Posts/i) ||
+    description.match(/([\d.,\s\u00A0]+)\s+публикац/i);
 
   return {
     posts: postsMatch ? normalizeNumber(postsMatch[1]) : null,
@@ -143,7 +168,7 @@ function parseFromMetaDescription(html) {
 function parseFromGenericCounterText(html) {
   const normalized = html.replace(/\s+/g, " ");
   const match = normalized.match(
-    /([\d.,\s]+)\s+Followers[\s,]+([\d.,\s]+)\s+Following[\s,]+([\d.,\s]+)\s+Posts/i,
+    /([\d.,\s\u00A0]+)\s+Followers[\s,]+([\d.,\s\u00A0]+)\s+Following[\s,]+([\d.,\s\u00A0]+)\s+Posts/i,
   );
 
   if (!match) {
@@ -156,13 +181,59 @@ function parseFromGenericCounterText(html) {
   };
 }
 
-async function fetchHtmlWithFallback() {
-  const headers = {
-    "user-agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-    accept: "text/html,application/xhtml+xml",
-  };
-  return requestText(INSTAGRAM_URL, headers);
+function mergePartialCounters(target, patch) {
+  if (patch.posts != null) {
+    target.posts = target.posts ?? patch.posts;
+  }
+  if (patch.followers != null) {
+    target.followers = target.followers ?? patch.followers;
+  }
+}
+
+function extractCountersFromHtml(html) {
+  const result = { posts: null, followers: null };
+  const parsers = [
+    parseFromWindowPayload,
+    parseFromJsonSnippets,
+    parseFromMetaDescription,
+    parseFromGenericCounterText,
+  ];
+  for (const parser of parsers) {
+    mergePartialCounters(result, parser(html));
+    if (result.posts != null && result.followers != null) {
+      break;
+    }
+  }
+  return result;
+}
+
+const INSTAGRAM_HEADERS = {
+  "user-agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+};
+
+async function fetchInstagramProfileHtml(extraHeaders = {}) {
+  return requestText(INSTAGRAM_URL, { ...INSTAGRAM_HEADERS, ...extraHeaders });
+}
+
+async function fetchHtmlWithBestEffortParsing() {
+  let html = await fetchInstagramProfileHtml();
+  let extracted = extractCountersFromHtml(html);
+
+  if (extracted.posts == null || extracted.followers == null) {
+    try {
+      const htmlEn = await fetchInstagramProfileHtml({
+        "accept-language": "en-US,en;q=0.9",
+      });
+      mergePartialCounters(extracted, extractCountersFromHtml(htmlEn));
+    } catch (_e) {
+      // keep first HTML parse result
+    }
+  }
+
+  return { extracted };
 }
 
 async function fetchFromProfileInfoApi(username) {
@@ -245,29 +316,25 @@ function buildMetrics(currentPosts, currentFollowers) {
 
 app.get("/api/instagram-stats", async (_req, res) => {
   try {
-    const html = await fetchHtmlWithFallback();
-    const fromPayload = parseFromWindowPayload(html);
-    const fromMeta = parseFromMetaDescription(html);
-    const fromGenericText = parseFromGenericCounterText(html);
-    let fromProfileApi = { posts: null, followers: null };
+    const { extracted } = await fetchHtmlWithBestEffortParsing();
+    let currentPosts = extracted.posts;
+    let currentFollowers = extracted.followers;
 
-    if (!fromPayload.posts || !fromPayload.followers) {
+    if (currentPosts == null || currentFollowers == null) {
       try {
-        fromProfileApi = await fetchFromProfileInfoApi("romejkomart");
+        const fromProfileApi = await fetchFromProfileInfoApi("romejkomart");
+        if (currentPosts == null) {
+          currentPosts = fromProfileApi.posts;
+        }
+        if (currentFollowers == null) {
+          currentFollowers = fromProfileApi.followers;
+        }
       } catch (_apiError) {
-        // Ignore API error; keep HTML-based sources as primary/fallback data.
+        // HTML already failed partially; API is last resort.
       }
     }
 
-    const currentPosts =
-      fromPayload.posts ?? fromMeta.posts ?? fromGenericText.posts ?? fromProfileApi.posts;
-    const currentFollowers =
-      fromPayload.followers ??
-      fromMeta.followers ??
-      fromGenericText.followers ??
-      fromProfileApi.followers;
-
-    if (!currentPosts || !currentFollowers) {
+    if (currentPosts == null || currentFollowers == null) {
       throw new Error("Could not extract profile counters from page HTML");
     }
 
