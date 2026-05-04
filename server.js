@@ -306,8 +306,75 @@ async function fetchInstagramProfileHtml(extraHeaders = {}) {
   return requestText(INSTAGRAM_URL, { ...INSTAGRAM_HEADERS, ...extraHeaders });
 }
 
+function envHasProxyVariables() {
+  return !!(
+    process.env.HTTPS_PROXY ||
+    process.env.HTTP_PROXY ||
+    process.env.ALL_PROXY ||
+    process.env.https_proxy ||
+    process.env.http_proxy ||
+    process.env.all_proxy
+  );
+}
+
+function getCurlCandidateBins() {
+  const bins = [];
+  if (process.env.CURL_BIN) {
+    bins.push(process.env.CURL_BIN);
+  }
+  if (process.platform === "darwin") {
+    bins.push("/usr/bin/curl", "/opt/homebrew/bin/curl");
+  }
+  bins.push("curl");
+  return [...new Set(bins.filter(Boolean))];
+}
+
+
+function buildBareCurlArgs(url, followRedirects) {
+  const args = ["-sS", "--max-time", "15"];
+  if (followRedirects) {
+    args.splice(1, 0, "-L");
+  }
+  if (envHasProxyVariables()) {
+    args.push("--noproxy", "*");
+  }
+  args.push(url);
+  return args;
+}
+
+async function curlExecuteWithBins(args) {
+  const tried = getCurlCandidateBins();
+  let lastError;
+  for (const bin of tried) {
+    try {
+      const { stdout } = await execFileAsync(bin, args, {
+        maxBuffer: 12 * 1024 * 1024,
+        encoding: "utf8",
+        env: buildCurlEnv(),
+      });
+      return stdout;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  try {
+    const cmd = `exec curl ${args.map((x) => JSON.stringify(String(x))).join(" ")}`;
+    const { stdout } = await execFileAsync("/bin/bash", ["-lc", cmd], {
+      maxBuffer: 12 * 1024 * 1024,
+      encoding: "utf8",
+      env: buildCurlEnv(),
+    });
+    return stdout;
+  } catch (shellErr) {
+    throw lastError || shellErr;
+  }
+}
+
 function buildCurlArgs(url, headers = {}) {
   const args = ["-sS", "-L", "--compressed", "--max-time", "15"];
+  if (envHasProxyVariables()) {
+    args.push("--noproxy", "*");
+  }
   const ua = headers["user-agent"];
   if (ua) {
     args.push("-A", ua);
@@ -322,12 +389,23 @@ function buildCurlArgs(url, headers = {}) {
   return args;
 }
 
+function buildCurlEnv() {
+  const env = { ...process.env };
+  delete env.HTTP_PROXY;
+  delete env.HTTPS_PROXY;
+  delete env.ALL_PROXY;
+  delete env.http_proxy;
+  delete env.https_proxy;
+  delete env.all_proxy;
+  return env;
+}
+
 async function curlGetExec(curlBin, url, headers = {}) {
   const args = buildCurlArgs(url, headers);
   const { stdout } = await execFileAsync(curlBin, args, {
     maxBuffer: 12 * 1024 * 1024,
     encoding: "utf8",
-    env: process.env,
+    env: buildCurlEnv(),
   });
   return stdout;
 }
@@ -338,22 +416,13 @@ async function curlGetViaLoginShell(url, headers = {}) {
   const { stdout } = await execFileAsync("/bin/bash", ["-lc", cmd], {
     maxBuffer: 12 * 1024 * 1024,
     encoding: "utf8",
-    env: process.env,
+    env: buildCurlEnv(),
   });
   return stdout;
 }
 
 async function curlGet(url, headers = {}) {
-  const bins = [];
-  if (process.env.CURL_BIN) {
-    bins.push(process.env.CURL_BIN);
-  }
-  if (process.platform === "darwin") {
-    bins.push("/usr/bin/curl", "/opt/homebrew/bin/curl");
-  }
-  bins.push("curl");
-
-  const tried = [...new Set(bins.filter(Boolean))];
+  const tried = getCurlCandidateBins();
   let lastError;
   for (const bin of tried) {
     try {
@@ -391,7 +460,7 @@ async function fetchFromProfileInfoApi(username) {
 }
 
 /**
- * Порядок: HTML через Node HTTPS → та же страница через curl → JSON API через Node HTTPS.
+ * Порядок: HTML через Node HTTPS → «голый» curl (как в CLI) → curl с заголовками браузера → JSON API.
  * Возвращает метку источника, когда оба счётчика известны.
  */
 async function resolveInstagramProfileCounters(username) {
@@ -421,6 +490,23 @@ async function resolveInstagramProfileCounters(username) {
     return { ...out, source: "HTML страницы профиля (HTTPS, Node.js)" };
   }
 
+  for (const followRedirects of [false, true]) {
+    try {
+      const html = await curlExecuteWithBins(buildBareCurlArgs(INSTAGRAM_URL, followRedirects));
+      mergePartialCounters(out, extractCountersFromHtml(html));
+      if (filled()) {
+        return {
+          ...out,
+          source: followRedirects
+            ? "HTML страницы профиля (curl минимальный, с -L)"
+            : "HTML страницы профиля (curl минимальный, без -L)",
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   try {
     const html = await fetchInstagramProfileHtmlViaCurl();
     mergePartialCounters(out, extractCountersFromHtml(html));
@@ -440,7 +526,7 @@ async function resolveInstagramProfileCounters(username) {
   }
 
   if (filled()) {
-    return { ...out, source: "HTML страницы профиля (curl)" };
+    return { ...out, source: "HTML страницы профиля (curl + User-Agent браузера)" };
   }
 
   try {
