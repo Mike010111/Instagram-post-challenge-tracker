@@ -329,7 +329,7 @@ function getCurlCandidateBins() {
   return [...new Set(bins.filter(Boolean))];
 }
 
-
+/** Как `curl https://…` в терминале: без -A / -H / --compressed (Instagram часто кладёт счётчики в og:description только для «простого» клиента). */
 function buildBareCurlArgs(url, followRedirects) {
   const args = ["-sS", "--max-time", "15"];
   if (followRedirects) {
@@ -372,6 +372,9 @@ async function curlExecuteWithBins(args) {
 
 function buildCurlArgs(url, headers = {}) {
   const args = ["-sS", "-L", "--compressed", "--max-time", "15"];
+  // If a proxy is injected into the environment, curl may fail with
+  // "CONNECT tunnel failed" even though direct curl in a login shell works.
+  // Bypass proxies for Instagram fetches.
   if (envHasProxyVariables()) {
     args.push("--noproxy", "*");
   }
@@ -390,6 +393,7 @@ function buildCurlArgs(url, headers = {}) {
 }
 
 function buildCurlEnv() {
+  // Inherit everything except proxy variables.
   const env = { ...process.env };
   delete env.HTTP_PROXY;
   delete env.HTTPS_PROXY;
@@ -469,42 +473,13 @@ async function resolveInstagramProfileCounters(username) {
   const filled = () => out.posts != null && out.followers != null;
 
   try {
-    const html = await fetchInstagramProfileHtml();
-    mergePartialCounters(out, extractCountersFromHtml(html));
+    mergePartialCounters(out, await fetchFromProfileInfoApi(username));
   } catch {
-    /* ignore */
-  }
-
-  if (!filled()) {
-    try {
-      const html = await fetchInstagramProfileHtml({
-        "accept-language": "en-US,en;q=0.9",
-      });
-      mergePartialCounters(out, extractCountersFromHtml(html));
-    } catch {
-      /* ignore */
-    }
+    /* ignore */  
   }
 
   if (filled()) {
-    return { ...out, source: "HTML страницы профиля (HTTPS, Node.js)" };
-  }
-
-  for (const followRedirects of [false, true]) {
-    try {
-      const html = await curlExecuteWithBins(buildBareCurlArgs(INSTAGRAM_URL, followRedirects));
-      mergePartialCounters(out, extractCountersFromHtml(html));
-      if (filled()) {
-        return {
-          ...out,
-          source: followRedirects
-            ? "HTML страницы профиля (curl минимальный, с -L)"
-            : "HTML страницы профиля (curl минимальный, без -L)",
-        };
-      }
-    } catch {
-      /* ignore */
-    }
+    return { ...out, source: "JSON API web_profile_info (HTTPS, Node.js)" };
   }
 
   try {
@@ -529,14 +504,43 @@ async function resolveInstagramProfileCounters(username) {
     return { ...out, source: "HTML страницы профиля (curl + User-Agent браузера)" };
   }
 
+  for (const followRedirects of [false, true]) {
+    try {
+      const html = await curlExecuteWithBins(buildBareCurlArgs(INSTAGRAM_URL, followRedirects));
+      mergePartialCounters(out, extractCountersFromHtml(html));
+      if (filled()) {
+        return {
+          ...out,
+          source: followRedirects
+            ? "HTML страницы профиля (curl минимальный, с -L)"
+            : "HTML страницы профиля (curl минимальный, без -L)",
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   try {
-    mergePartialCounters(out, await fetchFromProfileInfoApi(username));
+    const html = await fetchInstagramProfileHtml();
+    mergePartialCounters(out, extractCountersFromHtml(html));
   } catch {
     /* ignore */
   }
 
+  if (!filled()) {
+    try {
+      const html = await fetchInstagramProfileHtml({
+        "accept-language": "en-US,en;q=0.9",
+      });
+      mergePartialCounters(out, extractCountersFromHtml(html));
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (filled()) {
-    return { ...out, source: "JSON API web_profile_info (HTTPS, Node.js)" };
+    return { ...out, source: "HTML страницы профиля (HTTPS, Node.js)" };
   }
 
   return { ...out, source: null };
