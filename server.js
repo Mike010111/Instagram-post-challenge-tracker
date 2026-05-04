@@ -461,6 +461,7 @@ async function fetchFromProfileInfoApi(username) {
     "x-ig-app-id": "936619743392459",
     accept: "application/json",
   });
+  console.log(responseText.substring(0, 500))
   const json = JSON.parse(responseText);
   const user = json?.data?.user;
   return {
