@@ -1,13 +1,21 @@
 const express = require("express");
 const cheerio = require("cheerio");
 const path = require("path");
-const https = require("https");
 const http = require("http");
+const https = require("https");
+const dns = require("dns");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+
+dns.setDefaultResultOrder("ipv4first");
+
+const execFileAsync = promisify(execFile);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 const INSTAGRAM_URL = "https://www.instagram.com/romejkomart/";
+const INSTAGRAM_USERNAME = "romejkomart";
 const YEAR = 2026;
 const START_OF_YEAR_POSTS = 358;
 const START_OF_YEAR_FOLLOWERS = 1775;
@@ -15,6 +23,86 @@ const YEAR_GOAL_POSTS = 300;
 
 function normalizeNumber(value) {
   return Number(String(value || "").replace(/[^\d]/g, ""));
+}
+
+function stringifyExecStderr(stderr) {
+  if (stderr == null) {
+    return "";
+  }
+  if (typeof stderr === "string") {
+    return stderr;
+  }
+  if (Buffer.isBuffer(stderr)) {
+    return stderr.toString("utf8");
+  }
+  return String(stderr);
+}
+
+function flattenErrorText(error, depth = 0) {
+  if (error == null || depth > 6) {
+    return "";
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  if (
+    typeof AggregateError !== "undefined" &&
+    error instanceof AggregateError &&
+    Array.isArray(error.errors)
+  ) {
+    return error.errors.map((e) => flattenErrorText(e, depth + 1)).filter(Boolean).join(" ");
+  }
+  const parts = [
+    error.code || "",
+    error.message || "",
+    stringifyExecStderr(error.stderr),
+    flattenErrorText(error.cause, depth + 1),
+  ];
+  return parts.filter(Boolean).join(" ");
+}
+
+/** DNS / connectivity — not fixable by changing HTML parsers. */
+function mapInstagramUpstreamFailure(error) {
+  const msg = error?.message || String(error);
+  const stderr = stringifyExecStderr(error?.stderr);
+  const combined = flattenErrorText(error);
+  if (
+    error?.code === "ENOTFOUND" ||
+    /\bENOTFOUND\b/i.test(combined) ||
+    /\bENOTFOUND\b/i.test(`${msg} ${stderr}`) ||
+    /Could not resolve host/i.test(combined) ||
+    /nodename nor servname provided, or not known/i.test(combined)
+  ) {
+    return {
+      status: 503,
+      error:
+        "Нет доступа к Instagram: адрес www.instagram.com не найден (ошибка DNS или нет интернета). Проверьте сеть, VPN, блокировки и DNS в настройках системы или Wi‑Fi.",
+      details: msg.trim() || stderr.trim() || String(error),
+    };
+  }
+  if (error?.code === "EAI_AGAIN" || /\bEAI_AGAIN\b/i.test(combined)) {
+    return {
+      status: 503,
+      error:
+        "Временная ошибка DNS при обращении к Instagram. Подождите и повторите или смените DNS-сервер.",
+      details: msg.trim() || String(error),
+    };
+  }
+  if (error?.code === "ETIMEDOUT" || /\brequest timeout\b/i.test(msg) || /Operation timed out/i.test(combined)) {
+    return {
+      status: 504,
+      error: "Таймаут при подключении к Instagram.",
+      details: msg.trim() || String(error),
+    };
+  }
+  if (error?.code === "ECONNREFUSED" || error?.code === "ECONNRESET") {
+    return {
+      status: 503,
+      error: "Соединение с Instagram разорвано или отклонено.",
+      details: msg.trim() || String(error),
+    };
+  }
+  return null;
 }
 
 function requestText(url, headers = {}, redirectsLeft = 4) {
@@ -218,23 +306,72 @@ async function fetchInstagramProfileHtml(extraHeaders = {}) {
   return requestText(INSTAGRAM_URL, { ...INSTAGRAM_HEADERS, ...extraHeaders });
 }
 
-async function fetchHtmlWithBestEffortParsing() {
-  let html = await fetchInstagramProfileHtml();
-  console.log('HTML snippet:', html.substring(0, 500));
-  let extracted = extractCountersFromHtml(html);
+function buildCurlArgs(url, headers = {}) {
+  const args = ["-sS", "-L", "--compressed", "--max-time", "15"];
+  const ua = headers["user-agent"];
+  if (ua) {
+    args.push("-A", ua);
+  }
+  for (const [key, val] of Object.entries(headers)) {
+    if (key === "user-agent" || val == null || val === "") {
+      continue;
+    }
+    args.push("-H", `${key}: ${val}`);
+  }
+  args.push(url);
+  return args;
+}
 
-  if (extracted.posts == null || extracted.followers == null) {
+async function curlGetExec(curlBin, url, headers = {}) {
+  const args = buildCurlArgs(url, headers);
+  const { stdout } = await execFileAsync(curlBin, args, {
+    maxBuffer: 12 * 1024 * 1024,
+    encoding: "utf8",
+    env: process.env,
+  });
+  return stdout;
+}
+
+async function curlGetViaLoginShell(url, headers = {}) {
+  const argv = buildCurlArgs(url, headers);
+  const cmd = `exec curl ${argv.map((x) => JSON.stringify(String(x))).join(" ")}`;
+  const { stdout } = await execFileAsync("/bin/bash", ["-lc", cmd], {
+    maxBuffer: 12 * 1024 * 1024,
+    encoding: "utf8",
+    env: process.env,
+  });
+  return stdout;
+}
+
+async function curlGet(url, headers = {}) {
+  const bins = [];
+  if (process.env.CURL_BIN) {
+    bins.push(process.env.CURL_BIN);
+  }
+  if (process.platform === "darwin") {
+    bins.push("/usr/bin/curl", "/opt/homebrew/bin/curl");
+  }
+  bins.push("curl");
+
+  const tried = [...new Set(bins.filter(Boolean))];
+  let lastError;
+  for (const bin of tried) {
     try {
-      const htmlEn = await fetchInstagramProfileHtml({
-        "accept-language": "en-US,en;q=0.9",
-      });
-      mergePartialCounters(extracted, extractCountersFromHtml(htmlEn));
-    } catch (_e) {
-      // keep first HTML parse result
+      return await curlGetExec(bin, url, headers);
+    } catch (err) {
+      lastError = err;
     }
   }
 
-  return { extracted };
+  try {
+    return await curlGetViaLoginShell(url, headers);
+  } catch (shellErr) {
+    throw lastError || shellErr;
+  }
+}
+
+async function fetchInstagramProfileHtmlViaCurl(extraHeaders = {}) {
+  return curlGet(INSTAGRAM_URL, { ...INSTAGRAM_HEADERS, ...extraHeaders });
 }
 
 async function fetchFromProfileInfoApi(username) {
@@ -245,13 +382,78 @@ async function fetchFromProfileInfoApi(username) {
     "x-ig-app-id": "936619743392459",
     accept: "application/json",
   });
-  console.log('API raw:', responseText.substring(0, 300));
   const json = JSON.parse(responseText);
   const user = json?.data?.user;
   return {
     posts: user?.edge_owner_to_timeline_media?.count ?? null,
     followers: user?.edge_followed_by?.count ?? null,
   };
+}
+
+/**
+ * Порядок: HTML через Node HTTPS → та же страница через curl → JSON API через Node HTTPS.
+ * Возвращает метку источника, когда оба счётчика известны.
+ */
+async function resolveInstagramProfileCounters(username) {
+  const out = { posts: null, followers: null };
+
+  const filled = () => out.posts != null && out.followers != null;
+
+  try {
+    const html = await fetchInstagramProfileHtml();
+    mergePartialCounters(out, extractCountersFromHtml(html));
+  } catch {
+    /* ignore */
+  }
+
+  if (!filled()) {
+    try {
+      const html = await fetchInstagramProfileHtml({
+        "accept-language": "en-US,en;q=0.9",
+      });
+      mergePartialCounters(out, extractCountersFromHtml(html));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (filled()) {
+    return { ...out, source: "HTML страницы профиля (HTTPS, Node.js)" };
+  }
+
+  try {
+    const html = await fetchInstagramProfileHtmlViaCurl();
+    mergePartialCounters(out, extractCountersFromHtml(html));
+  } catch {
+    /* ignore */
+  }
+
+  if (!filled()) {
+    try {
+      const html = await fetchInstagramProfileHtmlViaCurl({
+        "accept-language": "en-US,en;q=0.9",
+      });
+      mergePartialCounters(out, extractCountersFromHtml(html));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (filled()) {
+    return { ...out, source: "HTML страницы профиля (curl)" };
+  }
+
+  try {
+    mergePartialCounters(out, await fetchFromProfileInfoApi(username));
+  } catch {
+    /* ignore */
+  }
+
+  if (filled()) {
+    return { ...out, source: "JSON API web_profile_info (HTTPS, Node.js)" };
+  }
+
+  return { ...out, source: null };
 }
 
 function motivationalComment({
@@ -318,34 +520,32 @@ function buildMetrics(currentPosts, currentFollowers) {
 
 app.get("/api/instagram-stats", async (_req, res) => {
   try {
-    const { extracted } = await fetchHtmlWithBestEffortParsing();
-    let currentPosts = extracted.posts;
-    let currentFollowers = extracted.followers;
+    const { posts, followers, source } = await resolveInstagramProfileCounters(INSTAGRAM_USERNAME);
 
-    if (currentPosts == null || currentFollowers == null) {
-      try {
-        console.log('Trying Instagram API...');
-        const fromProfileApi = await fetchFromProfileInfoApi("romejkomart");
-        if (currentPosts == null) {
-          currentPosts = fromProfileApi.posts;
-        }
-        if (currentFollowers == null) {
-          currentFollowers = fromProfileApi.followers;
-        }
-      } catch (apiError) {
-        console.log('API fetch failed:', apiError.message || apiError);
-      }
-    }
-
-    if (currentPosts == null || currentFollowers == null) {
+    if (posts == null || followers == null) {
       throw new Error("Could not extract profile counters from page HTML");
     }
 
-    res.json(buildMetrics(currentPosts, currentFollowers));
+    console.log(`Instagram: данные профиля получены через — ${source}`);
+    res.json(buildMetrics(posts, followers));
   } catch (error) {
+    const flat = flattenErrorText(error);
+    let upstream = mapInstagramUpstreamFailure(error);
+    if (!upstream && /\bENOTFOUND\b/i.test(flat)) {
+      upstream = {
+        status: 503,
+        error:
+          "Не удалось найти адрес Instagram (ошибка DNS). Проверьте сеть; при расхождении с терминалом задайте CURL_BIN или другой PORT.",
+        details: flat.trim() || error?.message || String(error),
+      };
+    }
+    if (upstream) {
+      res.status(upstream.status).json({ error: upstream.error, details: upstream.details });
+      return;
+    }
     res.status(502).json({
       error: "Не удалось получить данные Instagram. Возможно, страница вернула нестандартную разметку.",
-      details: error?.message || String(error),
+      details: flat.trim() || error?.message || String(error),
     });
   }
 });
@@ -358,6 +558,23 @@ app.use(
   }),
 );
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+server.on("error", (err) => {
+  console.error(
+    "[fatal] Не удалось запустить сервер:",
+    err.code || "",
+    err.message,
+  );
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `Порт ${PORT} уже занят. Кто слушает: lsof -nP -iTCP:${PORT} -sTCP:LISTEN\n` +
+        `Завершить процесс: kill -9 <PID>   или запуск с другим портом: PORT=3001 npm start`,
+    );
+  }
+  process.exit(1);
+});
+
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`Instagram planner running on http://localhost:${PORT}`);
 });
