@@ -15,7 +15,7 @@ const YEAR_GOAL_POSTS = 300;
 
 let cachedMetrics = null;
 let lastFetchTime = 0;
-const CACHE_TTL = 60 * 60 * 1000; // 1 час
+const CACHE_TTL = 60 * 60 * 1000 * 24; // 24 часа
 
 // === НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ АДМИНА ===
 const ADMIN_SECRET = process.env.ADMIN_SECRET_NAME || "admin";
@@ -197,6 +197,10 @@ app.use(express.static(path.join(__dirname, "public"), {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   },
 }));
+
+app.get('/test-404', (req, res) => {
+  res.status(404).sendFile(path.join(__dirname, "public", "404.html"));
+});
 
 app.use((req, res) => {
     res.status(404).sendFile(path.join(__dirname, "public", "404.html"));

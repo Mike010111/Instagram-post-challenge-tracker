@@ -13,19 +13,21 @@ const nodes = {
   ring: document.getElementById("ring-progress"),
   modal: document.getElementById("admin-modal"),
   modalClose: document.getElementById("modal-close"),
-  modalImage: document.getElementById("modal-image"),
-  modalTitle: document.getElementById("modal-title"),
-  modalSubtitle: document.getElementById("modal-subtitle"),
-  modalInput: document.getElementById("admin-secret-input"),
+  stateInitial: document.getElementById("state-initial"),
+  stateError: document.getElementById("state-error"),
+  stateLoading: document.getElementById("state-loading"),
 };
 
 let lastFetchTimestamp = 0;
 let isModalLocked = false;
+let currentModalState = null;          // 'initial', 'error', 'loading'
+let loadingTimer = null;              // для отложенного показа loading
 const ringRadius = 64;
 const ringLength = 2 * Math.PI * ringRadius;
 nodes.ring.style.strokeDasharray = `${ringLength}`;
 nodes.ring.style.strokeDashoffset = `${ringLength}`;
 
+// ---------- Вспомогательные функции ----------
 function formatInt(value) {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
@@ -87,7 +89,6 @@ async function fetchStats(url = "/api/instagram-stats") {
   return data;
 }
 
-// Обычная загрузка данных (старт страницы)
 async function loadData() {
   nodes.motivation.classList.remove("error");
   nodes.motivation.textContent = "Обновляю данные...";
@@ -99,41 +100,97 @@ async function loadData() {
   }
 }
 
-// --- ЛОГИКА МОДАЛЬНОГО ОКНА ---
+// --- Модальное окно (без мерцания) ---
 
-function setModalState(state) {
-  nodes.modalInput.classList.remove("hidden");
-  nodes.modalClose.classList.remove("hidden");
-  nodes.modalSubtitle.classList.add("hidden");
-  isModalLocked = false;
+// Возвращает видимый инпут (если есть), иначе null
+function getVisibleInput() {
+  // Ищем в активном блоке (initial или error)
+  return document.querySelector(
+    '#state-initial[style*="display: block"] .admin-secret-input, ' +
+    '#state-error[style*="display: block"] .admin-secret-input'
+  );
+}
 
+// Синхронно показывает нужный блок
+function applyModalState(state) {
+  // Скрываем все
+  nodes.stateInitial.style.display = "none";
+  nodes.stateError.style.display = "none";
+  nodes.stateLoading.style.display = "none";
+
+  // Показываем нужный
   if (state === "initial") {
-    nodes.modalImage.src = "/images/IMG_1.png";
-    nodes.modalTitle.textContent = "А вы кто?";
-    nodes.modalInput.value = "";
+    nodes.stateInitial.style.display = "block";
   } else if (state === "error") {
-    nodes.modalImage.src = "/images/IMG_2.png";
-    nodes.modalTitle.textContent = "Доступ запрещен. Ожидайте обновление данных админом...";
-    nodes.modalInput.value = "";
+    nodes.stateError.style.display = "block";
   } else if (state === "loading") {
-    nodes.modalImage.src = "/images/IMG_3.jpg";
-    nodes.modalTitle.textContent = "Пушка! Погнали делать контент :)";
-    nodes.modalSubtitle.classList.remove("hidden");
-    nodes.modalInput.classList.add("hidden");
-    nodes.modalClose.classList.add("hidden");
-    isModalLocked = true; // Запрещаем закрытие кликом мимо окна
+    nodes.stateLoading.style.display = "block";
   }
+
+  // Управление крестиком
+  if (state === "loading") {
+    nodes.modalClose.classList.add("hidden");
+    isModalLocked = true;
+  } else {
+    nodes.modalClose.classList.remove("hidden");
+    isModalLocked = false;
+  }
+
+  currentModalState = state;
+}
+
+// Очищает поле ввода и ставит фокус (только если state = initial/error)
+function clearVisibleInput() {
+  if (currentModalState === "initial" || currentModalState === "error") {
+    const input = getVisibleInput();
+    if (input) {
+      input.value = "";
+      // Небольшая задержка, чтобы фокус точно установился после переключения
+      setTimeout(() => input.focus(), 100);
+    }
+  }
+}
+
+// Главная функция смены состояния
+function setModalState(state) {
+  // Отменяем запланированный показ loading, если он был
+  if (loadingTimer) {
+    clearTimeout(loadingTimer);
+    loadingTimer = null;
+  }
+
+  // Если состояние не меняется и не loading – просто очищаем ввод
+  if (state === currentModalState && state !== "loading") {
+    clearVisibleInput();
+    return;
+  }
+
+  // Для loading – отложенный показ
+  if (state === "loading") {
+    loadingTimer = setTimeout(() => {
+      applyModalState("loading");
+      loadingTimer = null;
+    }, 250);
+    return;
+  }
+
+  // Мгновенное переключение для initial / error
+  applyModalState(state);
+  clearVisibleInput();
 }
 
 function openModal() {
   setModalState("initial");
   nodes.modal.classList.remove("hidden");
-  setTimeout(() => nodes.modalInput.focus(), 100);
 }
 
 function closeModal() {
   if (isModalLocked) return;
   nodes.modal.classList.add("hidden");
+  if (loadingTimer) {
+    clearTimeout(loadingTimer);
+    loadingTimer = null;
+  }
 }
 
 // Закрытие по крестику и клику вне окна
@@ -142,50 +199,55 @@ nodes.modal.addEventListener("click", (e) => {
   if (e.target === nodes.modal) closeModal();
 });
 
-// Обработка кнопки обновления
-nodes.refreshButton.addEventListener("click", () => {
-  const now = Date.now();
-  // Если прошел час (3600000 мс) или данных вообще нет - грузим обычно
-  if (!lastFetchTimestamp || now - lastFetchTimestamp >= 3600000) {
-    loadData();
-  } else {
-    // Иначе запрашиваем пароль
-    openModal();
-  }
-});
+// Обработка Enter
+nodes.modal.addEventListener("keypress", async (e) => {
+  if (e.key !== "Enter") return;
 
-// Обработка ввода секретного имени
-nodes.modalInput.addEventListener("keypress", async (e) => {
-  if (e.key === "Enter") {
-    const secret = nodes.modalInput.value.trim();
-    if (!secret) return;
+  // Проверяем, что событие пришло от видимого поля ввода
+  const activeInput = getVisibleInput();
+  if (!activeInput || e.target !== activeInput) return;
 
-    setModalState("loading");
-    const startTime = Date.now();
+  const secret = activeInput.value.trim();
+  if (!secret) return;
 
-    try {
-      const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
-      const data = await fetchStats(url);
-      
-      updateUI(data);
+  // Запускаем отложенный loading и сразу выполняем запрос
+  setModalState("loading");
+  const startTime = Date.now();
 
-      // Гарантируем, что успешное окно видно минимум 1 секунду
+  try {
+    const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
+    const data = await fetchStats(url);
+    updateUI(data);
+
+    // Если loading успел показаться, держим его минимум 1 секунду
+    if (currentModalState === "loading") {
       const elapsed = Date.now() - startTime;
       if (elapsed < 1000) {
         await new Promise(r => setTimeout(r, 1000 - elapsed));
       }
-      
-      isModalLocked = false;
-      closeModal();
-      
-    } catch (error) {
-      // Ошибка (403 Неверный пароль или 429 Лимит исчерпан)
-      setModalState("error");
-      if(error.status === 429) {
-          nodes.modalTitle.textContent = error.message;
-      }
     }
+    isModalLocked = false;
+    closeModal();
+  } catch (error) {
+    setModalState("error");
+    if (error.status === 429) {
+      const errorBlock = document.getElementById("state-error"); // надёжно получаем блок ошибки
+      const h3 = errorBlock.querySelector("h3");
+      if (h3) h3.textContent = error.message;
+    }
+    // Для других ошибок заголовок остаётся "Доступ запрещен..."
   }
 });
 
+// Кнопка "Обновить сейчас"
+nodes.refreshButton.addEventListener("click", () => {
+  const now = Date.now();
+  if (!lastFetchTimestamp || now - lastFetchTimestamp >= 3600000) {
+    loadData();
+  } else {
+    openModal();
+  }
+});
+
+// Первичная загрузка
 loadData();

@@ -1,84 +1,120 @@
 <!doctype html>
 <html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Instagram 2026 Planner</title>
-    <link rel="stylesheet" href="/styles.css" />
-  </head>
-  <body>
-    <main class="layout">
-      <section class="card hero">
-        <h1>300 единиц контента челлендж</h1>
-        <p class="subtitle">@romejkomart</p>
-        <p id="motivation" class="motivation">Загружаю актуальные данные...</p>
-      </section>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Instagram 2026 Planner</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* Модальное окно: контейнер для состояний с относительным позиционированием */
+    #modal-state-container {
+      position: relative;
+      min-height: 280px; /* примерная высота, чтобы модалка не дёргалась */
+    }
+    .modal-state {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      display: none; /* по умолчанию скрыты */
+    }
+    /* Крестик закрытия */
+    #modal-close.hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main class="layout">
+    <section class="card hero">
+      <h1>300 единиц контента челлендж</h1>
+      <p class="subtitle">@romejkomart</p>
+      <p id="motivation" class="motivation">Загружаю актуальные данные...</p>
+    </section>
 
-      <section class="card progress-card">
-        <h2 class="progress-title">Прогресс челленджа по постам за 2026</h2>
-        <div class="ring-wrap">
-          <svg class="progress-ring" viewBox="0 0 160 160">
-            <circle class="ring-bg" cx="80" cy="80" r="64"></circle>
-            <circle id="ring-progress" class="ring-progress" cx="80" cy="80" r="64"></circle>
-          </svg>
-          <div class="ring-center">
-            <div id="posted-this-year" class="big">0</div>
-            <div class="small">из 300</div>
+    <section class="card progress-card">
+      <h2 class="progress-title">Прогресс челленджа по постам за 2026</h2>
+      <div class="ring-wrap">
+        <svg class="progress-ring" viewBox="0 0 160 160">
+          <circle class="ring-bg" cx="80" cy="80" r="64"></circle>
+          <circle id="ring-progress" class="ring-progress" cx="80" cy="80" r="64"></circle>
+        </svg>
+        <div class="ring-center">
+          <div id="posted-this-year" class="big">0</div>
+          <div class="small">из 300</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article class="card stat">
+        <h2>Подписчики</h2>
+        <p id="followers">-</p>
+      </article>
+      <article class="card stat">
+        <h2>Прирост подписчиков</h2>
+        <p id="followers-growth">-</p>
+      </article>
+      <article class="card stat">
+        <h2>Посты сейчас</h2>
+        <p id="posts">-</p>
+      </article>
+      <article class="card stat">
+        <h2>Осталось до 300</h2>
+        <p id="remaining">-</p>
+      </article>
+      <article class="card stat">
+        <h2>Осталось дней</h2>
+        <p id="days-remaining">-</p>
+      </article>
+    </section>
+    <section class="stats-grid">
+      <article class="card stat">
+        <h2>Текущее среднее в день</h2>
+        <p id="avg-current">-</p>
+      </article>
+      <article class="card stat">
+        <h2>Текущее необходимое среднее в день</h2>
+        <p id="avg-required">-</p>
+      </article>
+    </section>
+
+    <section class="card footer-card">
+      <p id="updated-at">Обновление...</p>
+      <button id="refresh-button" type="button">Обновить сейчас</button>
+    </section>
+  </main>
+
+  <!-- МОДАЛЬНОЕ ОКНО -->
+  <div id="admin-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <button id="modal-close" class="modal-close">&times;</button>
+      <div id="modal-state-container">
+        <div id="state-initial" class="modal-state">
+          <div class="modal-img-wrap">
+            <img src="/images/IMG_1.png" alt="Initial" />
           </div>
+          <h3>А вы кто?</h3>
+          <input type="text" class="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
         </div>
-      </section>
-
-      <section class="stats-grid">
-        <article class="card stat">
-          <h2>Подписчики</h2>
-          <p id="followers">-</p>
-        </article>
-        <article class="card stat">
-          <h2>Прирост подписчиков</h2>
-          <p id="followers-growth">-</p>
-        </article>
-        <article class="card stat">
-          <h2>Посты сейчас</h2>
-          <p id="posts">-</p>
-        </article>
-        <article class="card stat">
-          <h2>Осталось до 300</h2>
-          <p id="remaining">-</p>
-        </article>
-        <article class="card stat">
-          <h2>Осталось дней</h2>
-          <p id="days-remaining">-</p>
-        </article>
-      </section>
-      <section class="stats-grid">
-        <article class="card stat">
-          <h2>Текущее среднее в день</h2>
-          <p id="avg-current">-</p>
-        </article>
-        <article class="card stat">
-          <h2>Текущее необходимое среднее в день</h2>
-          <p id="avg-required">-</p>
-        </article>
-      </section>
-
-      <section class="card footer-card">
-        <p id="updated-at">Обновление...</p>
-        <button id="refresh-button" type="button">Обновить сейчас</button>
-      </section>
-    </main>
-
-    <div id="admin-modal" class="modal-overlay hidden">
-      <div class="modal-content">
-        <button id="modal-close" class="modal-close">&times;</button>
-        <div class="modal-img-wrap">
-          <img id="modal-image" src="/images/IMG_1.png" alt="Status" />
+        <div id="state-error" class="modal-state">
+          <div class="modal-img-wrap">
+            <img src="/images/IMG_2.png" alt="Error" />
+          </div>
+          <h3>Доступ запрещен. Ожидайте обновление...</h3>
+          <input type="text" class="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
         </div>
-        <h3 id="modal-title">А вы кто?</h3>
-        <p id="modal-subtitle" class="hidden">Обновление данных...</p>
-        <input type="text" id="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
+        <div id="state-loading" class="modal-state">
+          <div class="modal-img-wrap">
+            <img src="/images/IMG_3.jpg" alt="Loading" />
+          </div>
+          <h3>Пушка! Погнали делать контент :)</h3>
+          <p>Обновление данных...</p>
+        </div>
       </div>
     </div>
-    
-    <script src="/script.js"></script>
-  </body>
+  </div>
+
+  <script src="/script.js"></script>
+</body>
 </html>

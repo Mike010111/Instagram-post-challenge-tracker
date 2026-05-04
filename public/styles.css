@@ -247,7 +247,7 @@ button:hover {
   color: var(--muted);
 }
 
-#admin-secret-input {
+.admin-secret-input {
   width: 100%;
   padding: 12px 16px;
   border: 2px solid #ffe0c2;
@@ -258,10 +258,20 @@ button:hover {
   transition: border-color 0.2s ease;
 }
 
-#admin-secret-input:focus {
+.admin-secret-input:focus {
   border-color: var(--accent);
 }
 
 .hidden {
   display: none !important;
+}
+
+.modal-state {
+  display: none;
+}
+.modal-state.active {
+  display: block;
+}
+#modal-close.hidden {
+  display: none;
 }
