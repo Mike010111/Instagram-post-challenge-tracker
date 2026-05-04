@@ -21,6 +21,12 @@ const START_OF_YEAR_POSTS = 358;
 const START_OF_YEAR_FOLLOWERS = 1775;
 const YEAR_GOAL_POSTS = 300;
 
+let cachedMetrics = null;
+let lastFetchTime = 0;
+const CACHE_TTL = 5 * 60 * 1000;
+let apiBlockedUntil = 0;
+const API_BLOCK_DURATION = 5 * 60 * 60 * 1000;
+
 function normalizeNumber(value) {
   return Number(String(value || "").replace(/[^\d]/g, ""));
 }
@@ -472,10 +478,16 @@ async function resolveInstagramProfileCounters(username) {
 
   const filled = () => out.posts != null && out.followers != null;
 
-  try {
-    mergePartialCounters(out, await fetchFromProfileInfoApi(username));
-  } catch {
-    /* ignore */  
+  if (!isApiBlocked()) {
+    try {
+      mergePartialCounters(out, await fetchFromProfileInfoApi(username));
+    } catch (apiError) {
+      const msg = flattenErrorText(apiError);
+      if (msg.includes("401") || msg.includes("403")) {
+        console.warn(`JSON API вернул ${msg}, блокирую на 5 часов`);
+        setApiBlocked();
+      }
+    }
   }
 
   if (filled()) {
@@ -608,24 +620,40 @@ function buildMetrics(currentPosts, currentFollowers) {
   };
 }
 
+function isApiBlocked() {
+  return Date.now() < apiBlockedUntil;
+}
+
+function setApiBlocked() {
+  apiBlockedUntil = Date.now() + API_BLOCK_DURATION;
+  console.warn(`JSON API заблокирован до ${new Date(apiBlockedUntil).toISOString()}`);
+}
+
 app.get("/api/instagram-stats", async (_req, res) => {
   try {
-    const { posts, followers, source } = await resolveInstagramProfileCounters(INSTAGRAM_USERNAME);
+    const now = Date.now();
 
+    if (cachedMetrics && (now - lastFetchTime < CACHE_TTL)) {
+      console.log("Instagram: отдача из кэша");
+      return res.json(cachedMetrics);
+    }
+
+    const { posts, followers, source } = await resolveInstagramProfileCounters(INSTAGRAM_USERNAME);
     if (posts == null || followers == null) {
       throw new Error("Could not extract profile counters from page HTML");
     }
 
     console.log(`Instagram: данные профиля получены через — ${source}`);
-    res.json(buildMetrics(posts, followers));
+    cachedMetrics = buildMetrics(posts, followers);
+    lastFetchTime = now;
+    res.json(cachedMetrics);
   } catch (error) {
     const flat = flattenErrorText(error);
     let upstream = mapInstagramUpstreamFailure(error);
     if (!upstream && /\bENOTFOUND\b/i.test(flat)) {
       upstream = {
         status: 503,
-        error:
-          "Не удалось найти адрес Instagram (ошибка DNS). Проверьте сеть; при расхождении с терминалом задайте CURL_BIN или другой PORT.",
+        error: "Не удалось найти адрес Instagram (ошибка DNS). Проверьте сеть; при расхождении с терминалом задайте CURL_BIN или другой PORT.",
         details: flat.trim() || error?.message || String(error),
       };
     }
