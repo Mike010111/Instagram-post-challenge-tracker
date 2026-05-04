@@ -1,11 +1,17 @@
-require("dotenv").config(); // Подключаем .env
+require("dotenv").config();
 const express = require("express");
 const path = require("path");
-const http = require("http");
 const { ApifyClient } = require("apify-client");
+const { Redis } = require("@upstash/redis");
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+
+// Инициализация Redis
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
 const INSTAGRAM_USERNAME = "romejkomart";
 const YEAR = 2026;
@@ -13,16 +19,13 @@ const START_OF_YEAR_POSTS = 358;
 const START_OF_YEAR_FOLLOWERS = 1775;
 const YEAR_GOAL_POSTS = 300;
 
-let cachedMetrics = null;
-let lastFetchTime = 0;
-const CACHE_TTL = 60 * 60 * 1000 * 24; // 24 часа
+const CACHE_KEY = "instagram_metrics_cache";
+const CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 часа
 
-// === НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ АДМИНА ===
 const ADMIN_SECRET = process.env.ADMIN_SECRET_NAME || "admin";
 const MAX_FORCED_UPDATES = 10;
-let forcedUpdatesToday = []; // Массив с метками времени обновлений
 
-// --- ФУНКЦИИ РАСЧЕТА ВРЕМЕНИ И ПРОГРЕССА ---
+// --- Функции расчёта (без изменений) ---
 function getDaysRemainingInYearInclusive(now) {
   const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
   if (now > yearEnd) return 0;
@@ -42,16 +45,11 @@ function getDaysElapsedInYearInclusive(now) {
 function getChallengeYearDayMetrics(now) {
   const challengeStart = new Date(YEAR, 0, 1);
   const challengeEnd = new Date(YEAR, 11, 31, 23, 59, 59, 999);
-  const startDateOnly = new Date(YEAR, 0, 1);
-  const endDateOnly = new Date(YEAR, 11, 31);
-  const totalDays = Math.floor((endDateOnly - startDateOnly) / (24 * 60 * 60 * 1000)) + 1;
+  const totalDays = 365;
 
-  if (now < challengeStart) {
-    return { daysElapsedInclusive: 0, daysRemainingInclusive: totalDays, challengeYearFinished: false };
-  }
-  if (now > challengeEnd) {
-    return { daysElapsedInclusive: totalDays, daysRemainingInclusive: 0, challengeYearFinished: true };
-  }
+  if (now < challengeStart) return { daysElapsedInclusive: 0, daysRemainingInclusive: totalDays, challengeYearFinished: false };
+  if (now > challengeEnd) return { daysElapsedInclusive: totalDays, daysRemainingInclusive: 0, challengeYearFinished: true };
+  
   return {
     daysElapsedInclusive: getDaysElapsedInYearInclusive(now),
     daysRemainingInclusive: getDaysRemainingInYearInclusive(now),
@@ -77,8 +75,7 @@ function buildMetrics(currentPosts, currentFollowers) {
   
   const currentAverageRaw = daysElapsed > 0 ? postedThisYear / daysElapsed : 0;
   const currentRequiredAverageRaw = daysRemaining > 0 ? remainingPosts / daysRemaining : 0;
-  const currentAverageRounded = Number(currentAverageRaw.toFixed(currentAverageRaw >= 1 ? 2 : 3));
-  const currentRequiredAverageRounded = Number(currentRequiredAverageRaw.toFixed(currentRequiredAverageRaw >= 1 ? 2 : 3));
+  
   const progressPercent = Math.min(100, (postedThisYear / YEAR_GOAL_POSTS) * 100);
 
   return {
@@ -86,128 +83,155 @@ function buildMetrics(currentPosts, currentFollowers) {
     currentPosts,
     currentFollowers,
     followersGrowth,
-    startOfYearPosts: START_OF_YEAR_POSTS,
-    startOfYearFollowers: START_OF_YEAR_FOLLOWERS,
-    goalPosts: YEAR_GOAL_POSTS,
     postedThisYear,
     remainingPosts,
     daysElapsedInclusive: daysElapsed,
     daysRemainingInclusive: daysRemaining,
-    currentAvgPostsPerDay: currentAverageRounded,
-    requiredAvgPostsPerDay: currentRequiredAverageRounded,
+    currentAvgPostsPerDay: Number(currentAverageRaw.toFixed(2)),
+    requiredAvgPostsPerDay: Number(currentRequiredAverageRaw.toFixed(2)),
     progressPercent: Number(progressPercent.toFixed(1)),
     challengeYearFinished,
     motivation: motivationalComment({
       progressPercent,
       remainingPosts,
-      requiredAvgPerDay: currentRequiredAverageRounded,
+      requiredAvgPerDay: currentRequiredAverageRaw,
       challengeYearFinished,
     }),
     lastUpdatedAt: now.toISOString(),
   };
 }
 
-// --- ИНТЕГРАЦИЯ С APIFY ---
 async function fetchInstagramStats() {
   const apifyToken = process.env.APIFY_API_TOKEN;
-  if (!apifyToken) {
-    throw new Error("Не задан APIFY_API_TOKEN в переменных окружения");
-  }
+  if (!apifyToken) throw new Error("Не задан APIFY_API_TOKEN");
 
   const client = new ApifyClient({ token: apifyToken });
-
-  console.log("Запрашиваем данные из Apify...");
-  // Вызываем готового актера для профилей
   const run = await client.actor("apify/instagram-profile-scraper").call({
     usernames: [INSTAGRAM_USERNAME],
   });
 
   const { items } = await client.dataset(run.defaultDatasetId).listItems();
-  
-  if (!items || items.length === 0) {
-    throw new Error("Apify вернул пустой результат");
-  }
+  if (!items || items.length === 0) throw new Error("Apify вернул пустой результат");
 
-  const profile = items[0];
   return {
-    posts: profile.postsCount,
-    followers: profile.followersCount,
+    posts: items[0].postsCount,
+    followers: items[0].followersCount,
   };
 }
 
-// --- API ENDPOINT ---
+// Безопасное получение кэша (с обработкой ошибок Redis)
+async function getCachedMetrics() {
+  try {
+    const data = await redis.get(CACHE_KEY);
+    return data ? data : null;
+  } catch (err) {
+    console.error("Redis get error:", err.message);
+    return null; // Redis недоступен — считаем, что кэша нет
+  }
+}
+
+// Безопасная запись в кэш
+async function setCachedMetrics(metrics) {
+  try {
+    await redis.set(CACHE_KEY, metrics, { ex: CACHE_TTL_SECONDS });
+    console.log("Кэш обновлён в Redis");
+  } catch (err) {
+    console.error("Redis set error:", err.message);
+    // Ничего страшного, данные отданы пользователю, просто кэш не обновился
+  }
+}
+
+// Безопасное увеличение счётчика и проверка лимита
+async function checkAndIncrementForceLimit() {
+  const forcedKey = `forced_updates_${new Date().toISOString().split('T')[0]}`;
+  try {
+    const count = await redis.incr(forcedKey);
+    await redis.expire(forcedKey, 86400); // 1 сутки
+    return count <= MAX_FORCED_UPDATES;
+  } catch (err) {
+    console.error("Redis limit error:", err.message);
+    // Если Redis недоступен, разрешаем обновление (но можно и запретить)
+    return true;
+  }
+}
+
+// --- API ENDPOINT (исправленный) ---
 app.get("/api/instagram-stats", async (req, res) => {
   try {
-    const now = Date.now();
     const force = req.query.force === "true";
     const secret = req.query.secret;
 
-    // Если запрошено принудительное обновление
+    // === Шаг 1: Обработка force-запроса (принудительное обновление) ===
     if (force) {
       if (secret !== ADMIN_SECRET) {
         return res.status(403).json({ error: "Неверное секретное имя" });
       }
 
-      // Очищаем старые записи (оставляем только за сегодня)
-      const startOfToday = new Date().setHours(0, 0, 0, 0);
-      forcedUpdatesToday = forcedUpdatesToday.filter(ts => ts > startOfToday);
-
-      if (forcedUpdatesToday.length >= MAX_FORCED_UPDATES) {
+      // Проверяем лимит ДО вызова Apify (но увеличивать будем после успеха)
+      const withinLimit = await checkAndIncrementForceLimit();
+      if (!withinLimit) {
         return res.status(429).json({ error: "Лимит обновлений (10 раз в день) исчерпан." });
       }
 
-      // Идем дальше, игнорируя кэш
-    } else {
-      // Обычный запрос: отдаем кэш, если час еще не прошел
-      if (cachedMetrics && (now - lastFetchTime < CACHE_TTL)) {
-        console.log("Instagram: отдача из кэша (экономим Apify лимиты)");
-        return res.json(cachedMetrics);
-      }
+      console.log("Принудительное обновление: запрос к Apify...");
+      const { posts, followers } = await fetchInstagramStats();
+      const metrics = buildMetrics(posts, followers);
+
+      // Сохраняем в Redis (не блокирует ответ)
+      await setCachedMetrics(metrics);
+
+      return res.json(metrics);
     }
 
-    const { posts, followers } = await fetchInstagramStats();
-
-    if (posts == null || followers == null) {
-      throw new Error("Не удалось получить счетчики (null) из ответа Apify");
+    // === Шаг 2: Обычный запрос — сначала пробуем кэш ===
+    const cached = await getCachedMetrics();
+    if (cached) {
+      console.log("Отдача из кэша Redis");
+      return res.json(cached);
     }
 
-    console.log(`Instagram: данные профиля успешно получены через Apify`);
-    cachedMetrics = buildMetrics(posts, followers);
-    lastFetchTime = Date.now();
-
-    // Записываем время принудительного обновления админом
-    if (force) {
-      forcedUpdatesToday.push(lastFetchTime);
-    }
-
-    res.json(cachedMetrics);
+    // === Шаг 3: Кэша нет — НЕ вызываем Apify, отдаём заглушку ===
+    console.log("Кэш отсутствует, отдаю заглушку (без Apify)");
+    return res.json({
+      year: YEAR,
+      currentPosts: 0,
+      currentFollowers: 0,
+      followersGrowth: 0,
+      postedThisYear: 0,
+      remainingPosts: YEAR_GOAL_POSTS,
+      daysElapsedInclusive: 0,
+      daysRemainingInclusive: 0,
+      currentAvgPostsPerDay: 0,
+      requiredAvgPostsPerDay: 0,
+      progressPercent: 0,
+      challengeYearFinished: false,
+      motivation: "Данные ещё не загружены. Нажмите «Обновить» для получения актуальной информации.",
+      lastUpdatedAt: new Date(0).toISOString(),
+      stale: true,
+    });
 
   } catch (error) {
-    console.error("Ошибка при работе с Apify:", error.message);
+    console.error("Ошибка API:", error.message);
     res.status(502).json({
-      error: "Не удалось получить данные Instagram через Apify.",
+      error: "Не удалось получить данные Instagram.",
       details: error.message,
     });
   }
 });
 
 // Раздача статики
-app.use(express.static(path.join(__dirname, "public"), {
-  setHeaders: (res) => {
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-  },
-}));
+app.use(express.static(path.join(__dirname, "public")));
 
-app.get('/test-404', (req, res) => {
+// Тестовый маршрут для 404
+app.get("/test-404", (req, res) => {
   res.status(404).sendFile(path.join(__dirname, "public", "404.html"));
 });
 
+// Финальный 404
 app.use((req, res) => {
-    res.status(404).sendFile(path.join(__dirname, "public", "404.html"));
+  res.status(404).sendFile(path.join(__dirname, "public", "404.html"));
 });
 
-const server = http.createServer(app);
-
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Instagram planner running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
 });

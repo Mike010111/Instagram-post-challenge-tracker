@@ -241,12 +241,7 @@ nodes.modal.addEventListener("keypress", async (e) => {
 
 // Кнопка "Обновить сейчас"
 nodes.refreshButton.addEventListener("click", () => {
-  const now = Date.now();
-  if (!lastFetchTimestamp || now - lastFetchTimestamp >= 3600000) {
-    loadData();
-  } else {
-    openModal();
-  }
+  openModal();
 });
 
 // Первичная загрузка
