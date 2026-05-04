@@ -1,3 +1,4 @@
+require("dotenv").config(); // Подключаем .env
 const express = require("express");
 const path = require("path");
 const http = require("http");
@@ -12,10 +13,14 @@ const START_OF_YEAR_POSTS = 358;
 const START_OF_YEAR_FOLLOWERS = 1775;
 const YEAR_GOAL_POSTS = 300;
 
-// Увеличиваем кэш до 1 часа, чтобы экономить бесплатные лимиты Apify
 let cachedMetrics = null;
 let lastFetchTime = 0;
-const CACHE_TTL = 60 * 60 * 1000; 
+const CACHE_TTL = 60 * 60 * 1000; // 1 час
+
+// === НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ АДМИНА ===
+const ADMIN_SECRET = process.env.ADMIN_SECRET_NAME || "admin";
+const MAX_FORCED_UPDATES = 10;
+let forcedUpdatesToday = []; // Массив с метками времени обновлений
 
 // --- ФУНКЦИИ РАСЧЕТА ВРЕМЕНИ И ПРОГРЕССА ---
 function getDaysRemainingInYearInclusive(now) {
@@ -131,13 +136,33 @@ async function fetchInstagramStats() {
 }
 
 // --- API ENDPOINT ---
-app.get("/api/instagram-stats", async (_req, res) => {
+app.get("/api/instagram-stats", async (req, res) => {
   try {
     const now = Date.now();
+    const force = req.query.force === "true";
+    const secret = req.query.secret;
 
-    if (cachedMetrics && (now - lastFetchTime < CACHE_TTL)) {
-      console.log("Instagram: отдача из кэша (экономим Apify лимиты)");
-      return res.json(cachedMetrics);
+    // Если запрошено принудительное обновление
+    if (force) {
+      if (secret !== ADMIN_SECRET) {
+        return res.status(403).json({ error: "Неверное секретное имя" });
+      }
+
+      // Очищаем старые записи (оставляем только за сегодня)
+      const startOfToday = new Date().setHours(0, 0, 0, 0);
+      forcedUpdatesToday = forcedUpdatesToday.filter(ts => ts > startOfToday);
+
+      if (forcedUpdatesToday.length >= MAX_FORCED_UPDATES) {
+        return res.status(429).json({ error: "Лимит обновлений (10 раз в день) исчерпан." });
+      }
+
+      // Идем дальше, игнорируя кэш
+    } else {
+      // Обычный запрос: отдаем кэш, если час еще не прошел
+      if (cachedMetrics && (now - lastFetchTime < CACHE_TTL)) {
+        console.log("Instagram: отдача из кэша (экономим Apify лимиты)");
+        return res.json(cachedMetrics);
+      }
     }
 
     const { posts, followers } = await fetchInstagramStats();
@@ -148,7 +173,13 @@ app.get("/api/instagram-stats", async (_req, res) => {
 
     console.log(`Instagram: данные профиля успешно получены через Apify`);
     cachedMetrics = buildMetrics(posts, followers);
-    lastFetchTime = now;
+    lastFetchTime = Date.now();
+
+    // Записываем время принудительного обновления админом
+    if (force) {
+      forcedUpdatesToday.push(lastFetchTime);
+    }
+
     res.json(cachedMetrics);
 
   } catch (error) {
@@ -166,6 +197,10 @@ app.use(express.static(path.join(__dirname, "public"), {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   },
 }));
+
+app.use((req, res) => {
+    res.status(404).sendFile(path.join(__dirname, "public", "404.html"));
+});
 
 const server = http.createServer(app);
 

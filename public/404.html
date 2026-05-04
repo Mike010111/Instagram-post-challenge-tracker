@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 — Страница не найдена</title>
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: var(--bg); /* Используем твой основной фон */
+            font-family: 'Inter', -apple-system, sans-serif;
+            overflow: hidden;
+        }
+
+        /* Увеличенная в 1.5 раза карточка с профессиональными эффектами */
+        .error-container {
+            background: var(--card);
+            /* Увеличили ширину с 400px до 600px */
+            width: min(600px, 90vw); 
+            /* Увеличили внутренние отступы для "воздуха" */
+            padding: 30px 40px;
+            border-radius: 40px;
+            text-align: center;
+            
+            /* Сложная тень для эффекта глубины */
+            box-shadow: 
+                0 10px 20px rgba(129, 75, 29, 0.04),
+                0 30px 60px rgba(129, 75, 29, 0.08);
+            
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            position: relative;
+            animation: cardAppear 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes cardAppear {
+            from { opacity: 0; transform: translateY(20px) scale(0.98); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .error-img-wrap {
+            margin-bottom: 40px;
+            display: inline-block;
+        }
+
+        .error-img {
+            /* Увеличенный размер картинки */
+            width: 100%;
+            max-width: 420px; 
+            height: auto;
+            border-radius: 24px;
+            /* Мягкое свечение под картинкой */
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .error-img:hover {
+            transform: scale(1.02);
+        }
+
+        .error-title {
+            font-size: 2.2rem; /* Крупный заголовок */
+            font-weight: 800;
+            color: var(--text);
+            margin: 0;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+
+        .error-title2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--text);
+            margin: 0;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+            padding: 10px;
+        }
+
+        /* Декоративный элемент под текстом для профессионального вида */
+        .error-container::after {
+            content: "";
+            position: absolute;
+            bottom: -15px;
+            left: 10%;
+            right: 10%;
+            height: 15px;
+            background: rgba(0,0,0,0.03);
+            filter: blur(15px);
+            border-radius: 50%;
+            z-index: -1;
+        }
+
+        /* Адаптивность для мобилок */
+        @media (max-width: 480px) {
+            .error-container {
+                padding: 40px 20px;
+            }
+            .error-title {
+                font-size: 1.6rem;
+            }
+            .error-title2 {
+                font-size: 1.9rem;
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="error-container">
+        <h1 class="error-title2">Error: 404</h1>
+        <div class="error-img-wrap">
+            <img src="/images/IMG_4.png" alt="Error 404" class="error-img">
+        </div>
+        
+        <h1 class="error-title">Упс...<br>Походу, что-то упало</h1>
+
+    </div>
+
+</body>
+</html>

@@ -168,3 +168,100 @@ button:hover {
   background: #ffe3dd;
   border-left-color: var(--danger);
 }
+
+/* --- СТИЛИ МОДАЛЬНОГО ОКНА --- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(42, 30, 19, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.modal-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.modal-content {
+  background: var(--card);
+  padding: 30px;
+  border-radius: 24px;
+  width: 90%;
+  max-width: 340px;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  position: relative;
+  transform: translateY(0);
+  transition: transform 0.3s ease;
+}
+
+.modal-overlay.hidden .modal-content {
+  transform: translateY(20px);
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 24px;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  background: #fff0df;
+  color: var(--danger);
+}
+
+.modal-img-wrap img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 16px; /* Немного закругленные углы */
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+#modal-title {
+  margin: 0 0 16px;
+  font-size: 1.2rem;
+  color: var(--text);
+}
+
+#modal-subtitle {
+  margin: -10px 0 16px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+#admin-secret-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #ffe0c2;
+  border-radius: 12px;
+  font-family: inherit;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+#admin-secret-input:focus {
+  border-color: var(--accent);
+}
+
+.hidden {
+  display: none !important;
+}

@@ -66,6 +66,19 @@
         <button id="refresh-button" type="button">Обновить сейчас</button>
       </section>
     </main>
+
+    <div id="admin-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <button id="modal-close" class="modal-close">&times;</button>
+        <div class="modal-img-wrap">
+          <img id="modal-image" src="/images/IMG_1.png" alt="Status" />
+        </div>
+        <h3 id="modal-title">А вы кто?</h3>
+        <p id="modal-subtitle" class="hidden">Обновление данных...</p>
+        <input type="text" id="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
+      </div>
+    </div>
+    
     <script src="/script.js"></script>
   </body>
 </html>
