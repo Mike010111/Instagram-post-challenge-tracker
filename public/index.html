@@ -90,27 +90,12 @@
     <div class="modal-content">
       <button id="modal-close" class="modal-close">&times;</button>
       <div id="modal-state-container">
-        <div id="state-initial" class="modal-state">
-          <div class="modal-img-wrap">
-            <img src="/images/IMG_1.png" alt="Initial" />
-          </div>
-          <h3>А вы кто?</h3>
-          <input type="text" class="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
+        <div class="modal-img-wrap">
+          <img id="modal-img" src="/images/IMG_1.png" alt="Status" />
         </div>
-        <div id="state-error" class="modal-state">
-          <div class="modal-img-wrap">
-            <img src="/images/IMG_2.png" alt="Error" />
-          </div>
-          <h3>Доступ запрещен. Ожидайте обновление...</h3>
-          <input type="text" class="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
-        </div>
-        <div id="state-loading" class="modal-state">
-          <div class="modal-img-wrap">
-            <img src="/images/IMG_3.jpg" alt="Loading" />
-          </div>
-          <h3>Пушка! Погнали делать контент :)</h3>
-          <p>Обновление данных...</p>
-        </div>
+        <h3 id="modal-title">А вы кто?</h3>
+        <p id="modal-desc" class="hidden">Обновление данных...</p>
+        <input type="text" id="admin-input" class="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
       </div>
     </div>
   </div>

@@ -31,17 +31,17 @@ let cacheTimestamp = 0;         // время последнего обновл�
 
 // --- Функции расчёта (без изменений) ---
 function getDaysRemainingInYearInclusive(now) {
-  const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+  const yearEnd = new Date(Date.UTC(YEAR, 11, 31, 23, 59, 59, 999));
   if (now > yearEnd) return 0;
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfYearDateOnly = new Date(yearEnd.getFullYear(), yearEnd.getMonth(), yearEnd.getDate());
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const endOfYearDateOnly = new Date(Date.UTC(YEAR, 11, 31));
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.floor((endOfYearDateOnly - startOfToday) / msPerDay) + 1;
 }
 
 function getDaysElapsedInYearInclusive(now) {
-  const yearStart = new Date(now.getFullYear(), 0, 1);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yearStart = new Date(Date.UTC(YEAR, 0, 1));
+  const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const msPerDay = 24 * 60 * 60 * 1000;
   return Math.floor((startOfToday - yearStart) / msPerDay) + 1;
 }
@@ -71,7 +71,7 @@ function motivationalComment({ progressPercent, remainingPosts, requiredAvgPerDa
 }
 
 function buildMetrics(currentPosts, currentFollowers) {
-  const now = new Date();
+  const now = new Date(); // Берем обычное системное время
   const postedThisYear = Math.max(0, currentPosts - START_OF_YEAR_POSTS);
   const followersGrowth = currentFollowers - START_OF_YEAR_FOLLOWERS;
   const remainingPosts = Math.max(0, YEAR_GOAL_POSTS - postedThisYear);
@@ -148,6 +148,30 @@ async function saveCacheToRedis(metrics) {
   }
 }
 
+let isUpdatingApify = false; // Блокировка от множественных параллельных запросов
+
+async function triggerBackgroundUpdate() {
+  if (isUpdatingApify) return; // Если уже обновляем, второй раз не лезем
+  isUpdatingApify = true;
+  console.log("Запущено фоновое автоматическое обновление Apify...");
+  
+  try {
+    const { posts, followers } = await fetchInstagramStats();
+    const metrics = buildMetrics(posts, followers);
+    
+    if (metrics) {
+      cachedMetrics = metrics;
+      cacheTimestamp = Date.now();
+      await saveCacheToRedis(metrics);
+      console.log("Фоновое обновление успешно завершено.");
+    }
+  } catch (err) {
+    console.error("Ошибка при фоновом обновлении:", err.message);
+  } finally {
+    isUpdatingApify = false;
+  }
+}
+
 // --- API ENDPOINT ---
 app.get("/api/instagram-stats", async (req, res) => {
   try {
@@ -197,25 +221,41 @@ app.get("/api/instagram-stats", async (req, res) => {
 
     // ========== ОБЫЧНЫЙ ЗАПРОС ==========
     // 1. Если есть локальный кэш – отдаём его (Redis не трогаем)
-    if (cachedMetrics) {
-      console.log("Отдача из локального кэша (память)");
-      return res.json(cachedMetrics);
+    const LOCAL_CACHE_TTL_MS = 60 * 60 * 1000; // 1 час для инвалидации локального кэша
+    const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 часа для похода в Apify
+    
+    // 1. Проверяем локальный кэш
+    let metricsToReturn = null;
+    if (cachedMetrics && (Date.now() - cacheTimestamp < LOCAL_CACHE_TTL_MS)) {
+      metricsToReturn = cachedMetrics;
+      console.log("Отдача из локального кэша");
+    } else {
+      // 2. Локального кэша нет или он протух – идем в Redis
+      console.log("Локальный кэш пуст/устарел, пробую Redis...");
+      const redisData = await loadCacheFromRedis();
+      if (redisData) {
+        cachedMetrics = redisData;
+        cacheTimestamp = Date.now();
+        metricsToReturn = redisData;
+        console.log("Данные загружены из Redis в локальный кэш");
+      }
     }
 
-    // 2. Локального кэша нет (сервер только запустился) – пробуем восстановить из Redis
-    console.log("Локальный кэш пуст, пробую Redis...");
-    const redisData = await loadCacheFromRedis();
-
-    if (redisData) {
-      // Заполняем локальный кэш
-      cachedMetrics = redisData;
-      cacheTimestamp = Date.now();
-      console.log("Данные загружены из Redis в локальный кэш");
-      return res.json(redisData);
+    // 3. Анализируем то, что нашли
+    if (metricsToReturn && !metricsToReturn.stale) {
+      const ageMs = Date.now() - new Date(metricsToReturn.lastUpdatedAt).getTime();
+      
+      // Если данным больше 24 часов — отдаем старые, но тихонько обновляем в фоне
+      if (ageMs > UPDATE_INTERVAL_MS) {
+        triggerBackgroundUpdate();
+      }
+      return res.json(metricsToReturn);
     }
 
-    // 3. Кэша нет нигде – возвращаем заглушку (без Apify)
-    console.log("Кэш отсутствует, отдаю заглушку (без Apify)");
+    // 4. Кэша нет нигде вообще (первый запуск сервера)
+    console.log("Кэш отсутствует, отдаю заглушку и стартую фоновое обновление");
+    triggerBackgroundUpdate(); // Инициируем сбор данных
+    
     return res.json({
       year: YEAR,
       currentPosts: 0,
@@ -229,8 +269,8 @@ app.get("/api/instagram-stats", async (req, res) => {
       requiredAvgPostsPerDay: 0,
       progressPercent: 0,
       challengeYearFinished: false,
-      motivation: "Данные ещё не загружены. Нажмите «Обновить» для получения актуальной информации.",
-      lastUpdatedAt: new Date(0).toISOString(),
+      motivation: "Собираю актуальные данные в фоне... Обновите страницу через минуту.",
+      lastUpdatedAt: new Date().toISOString(),
       stale: true,
     });
 

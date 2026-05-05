@@ -100,149 +100,116 @@ async function loadData() {
   }
 }
 
-// --- Модальное окно (без мерцания) ---
+// --- Модальное окно (State Machine) ---
+const modalNodes = {
+  overlay: document.getElementById("admin-modal"),
+  closeBtn: document.getElementById("modal-close"),
+  img: document.getElementById("modal-img"),
+  title: document.getElementById("modal-title"),
+  desc: document.getElementById("modal-desc"),
+  input: document.getElementById("admin-input"),
+};
 
-// Возвращает видимый инпут (если есть), иначе null
-function getVisibleInput() {
-  // Ищем в активном блоке (initial или error)
-  return document.querySelector(
-    '#state-initial[style*="display: block"] .admin-secret-input, ' +
-    '#state-error[style*="display: block"] .admin-secret-input'
-  );
-}
+let loadingVisualTimeout = null;
 
-// Синхронно показывает нужный блок
-function applyModalState(state) {
-  // Скрываем все
-  nodes.stateInitial.style.display = "none";
-  nodes.stateError.style.display = "none";
-  nodes.stateLoading.style.display = "none";
-
-  // Показываем нужный
-  if (state === "initial") {
-    nodes.stateInitial.style.display = "block";
-  } else if (state === "error") {
-    nodes.stateError.style.display = "block";
-  } else if (state === "loading") {
-    nodes.stateLoading.style.display = "block";
-  }
-
-  // Управление крестиком
-  if (state === "loading") {
-    nodes.modalClose.classList.add("hidden");
-    isModalLocked = true;
-  } else {
-    nodes.modalClose.classList.remove("hidden");
-    isModalLocked = false;
+function setModalState(state, errorMessage = "") {
+  // Если мы уже в состоянии ошибки и пытаемся снова вызвать ошибку
+  if (state === "error" && currentModalState === "error") {
+    modalNodes.input.value = ""; // Просто чистим поле
+    modalNodes.input.focus();
+    // Можно добавить легкое дрожание (shake) для фидбека, если захочешь
+    return;
   }
 
   currentModalState = state;
-}
 
-// Очищает поле ввода и ставит фокус (только если state = initial/error)
-function clearVisibleInput() {
-  if (currentModalState === "initial" || currentModalState === "error") {
-    const input = getVisibleInput();
-    if (input) {
-      input.value = "";
-      // Небольшая задержка, чтобы фокус точно установился после переключения
-      setTimeout(() => input.focus(), 100);
-    }
+  if (state === "initial") {
+    modalNodes.img.src = "/images/IMG_1.png";
+    modalNodes.title.textContent = "А вы кто?";
+    modalNodes.desc.classList.add("hidden");
+    modalNodes.input.classList.remove("hidden");
+    modalNodes.closeBtn.classList.remove("hidden");
+    modalNodes.input.value = "";
+    setTimeout(() => modalNodes.input.focus(), 50);
+    isModalLocked = false;
+  } 
+  else if (state === "error") {
+    modalNodes.img.src = "/images/IMG_2.png";
+    modalNodes.title.textContent = errorMessage || "Доступ запрещен. Попробуйте еще раз:";
+    modalNodes.desc.classList.add("hidden");
+    modalNodes.input.classList.remove("hidden");
+    modalNodes.closeBtn.classList.remove("hidden");
+    modalNodes.input.value = "";
+    modalNodes.input.focus();
+    isModalLocked = false;
+  } 
+  else if (state === "loading") {
+    modalNodes.img.src = "/images/IMG_3.jpg";
+    modalNodes.title.textContent = "Пушка! Погнали делать контент :)";
+    modalNodes.desc.classList.remove("hidden");
+    modalNodes.input.classList.add("hidden");
+    modalNodes.closeBtn.classList.add("hidden");
+    isModalLocked = true;
   }
-}
-
-// Главная функция смены состояния
-function setModalState(state) {
-  // Отменяем запланированный показ loading, если он был
-  if (loadingTimer) {
-    clearTimeout(loadingTimer);
-    loadingTimer = null;
-  }
-
-  // Если состояние не меняется и не loading – просто очищаем ввод
-  if (state === currentModalState && state !== "loading") {
-    clearVisibleInput();
-    return;
-  }
-
-  // Для loading – отложенный показ
-  if (state === "loading") {
-    loadingTimer = setTimeout(() => {
-      applyModalState("loading");
-      loadingTimer = null;
-    }, 250);
-    return;
-  }
-
-  // Мгновенное переключение для initial / error
-  applyModalState(state);
-  clearVisibleInput();
 }
 
 function openModal() {
   setModalState("initial");
-  nodes.modal.classList.remove("hidden");
+  modalNodes.overlay.classList.remove("hidden");
 }
 
 function closeModal() {
   if (isModalLocked) return;
-  nodes.modal.classList.add("hidden");
-  if (loadingTimer) {
-    clearTimeout(loadingTimer);
-    loadingTimer = null;
-  }
+  modalNodes.overlay.classList.add("hidden");
 }
 
-// Закрытие по крестику и клику вне окна
-nodes.modalClose.addEventListener("click", closeModal);
-nodes.modal.addEventListener("click", (e) => {
-  if (e.target === nodes.modal) closeModal();
+// Слушатели закрытия
+modalNodes.closeBtn.addEventListener("click", closeModal);
+modalNodes.overlay.addEventListener("click", (e) => {
+  if (e.target === modalNodes.overlay) closeModal();
 });
 
 // Обработка Enter
-nodes.modal.addEventListener("keypress", async (e) => {
+modalNodes.input.addEventListener("keypress", async (e) => {
   if (e.key !== "Enter") return;
 
-  // Проверяем, что событие пришло от видимого поля ввода
-  const activeInput = getVisibleInput();
-  if (!activeInput || e.target !== activeInput) return;
-
-  const secret = activeInput.value.trim();
+  const secret = modalNodes.input.value.trim();
   if (!secret) return;
 
-  // Запускаем отложенный loading и сразу выполняем запрос
-  setModalState("loading");
   const startTime = Date.now();
+  
+  // Устанавливаем таймер: если через 250мс сервер не ответил (значит пароль верный и идет долгий Apify),
+  // то показываем Содержимое 3. Если ответил быстро (ошибка) — отменяем таймер.
+  loadingVisualTimeout = setTimeout(() => {
+    setModalState("loading");
+  }, 250);
 
   try {
     const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
     const data = await fetchStats(url);
+    
+    // Если запрос прошел успешно (200 OK)
+    clearTimeout(loadingVisualTimeout); // На всякий случай
+    setModalState("loading"); // Гарантируем, что успех показан
     updateUI(data);
 
-    // Если loading успел показаться, держим его минимум 1 секунду
-    if (currentModalState === "loading") {
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 1000) {
-        await new Promise(r => setTimeout(r, 1000 - elapsed));
-      }
+    const elapsed = Date.now() - startTime;
+    if (elapsed < 1000) {
+      await new Promise(r => setTimeout(r, 1000 - elapsed));
     }
+    
     isModalLocked = false;
     closeModal();
   } catch (error) {
-    setModalState("error");
-    if (error.status === 429) {
-      const errorBlock = document.getElementById("state-error"); // надёжно получаем блок ошибки
-      const h3 = errorBlock.querySelector("h3");
-      if (h3) h3.textContent = error.message;
-    }
-    // Для других ошибок заголовок остаётся "Доступ запрещен..."
+    // Ошибка пришла быстро — отменяем показ Loading
+    clearTimeout(loadingVisualTimeout);
+    
+    const errorMsg = (error.status === 403) ? "Неверный код. Попробуйте еще раз:" : error.message;
+    setModalState("error", errorMsg);
   }
 });
 
-// Кнопка "Обновить сейчас"
-nodes.refreshButton.addEventListener("click", () => {
-  openModal();
-});
+nodes.refreshButton.addEventListener("click", openModal);
 
 // Первичная загрузка
 loadData();
