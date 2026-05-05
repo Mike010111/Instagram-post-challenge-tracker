@@ -182,7 +182,7 @@ modalNodes.input.addEventListener("keypress", async (e) => {
   // то показываем Содержимое 3. Если ответил быстро (ошибка) — отменяем таймер.
   loadingVisualTimeout = setTimeout(() => {
     setModalState("loading");
-  }, 250);
+  }, 400);
 
   try {
     const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
@@ -204,7 +204,7 @@ modalNodes.input.addEventListener("keypress", async (e) => {
     // Ошибка пришла быстро — отменяем показ Loading
     clearTimeout(loadingVisualTimeout);
     
-    const errorMsg = (error.status === 403) ? "Неверный код. Попробуйте еще раз:" : error.message;
+    const errorMsg = (error.status === 403) ? "Доступ запрещен. Вы не админ!" : error.message;
     setModalState("error", errorMsg);
   }
 });
