@@ -7,7 +7,7 @@ const { Redis } = require("@upstash/redis");
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-// Инициализация Redis
+// Инициализация Redis (REST-клиент для Upstash)
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
   token: process.env.UPSTASH_REDIS_REST_TOKEN,
@@ -20,10 +20,14 @@ const START_OF_YEAR_FOLLOWERS = 1775;
 const YEAR_GOAL_POSTS = 300;
 
 const CACHE_KEY = "instagram_metrics_cache";
-const CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 часа
+const CACHE_TTL_SECONDS = 60 * 60 * 24; // TTL в Redis – 24 часа
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET_NAME || "admin";
 const MAX_FORCED_UPDATES = 10;
+
+// === Локальный кэш (память процесса) ===
+let cachedMetrics = null;       // сами данные
+let cacheTimestamp = 0;         // время последнего обновления (необязательно, но для информации)
 
 // --- Функции расчёта (без изменений) ---
 function getDaysRemainingInYearInclusive(now) {
@@ -119,56 +123,55 @@ async function fetchInstagramStats() {
   };
 }
 
-// Безопасное получение кэша (с обработкой ошибок Redis)
-async function getCachedMetrics() {
+// --- Безопасная работа с Redis (только для восстановления и сохранения) ---
+async function loadCacheFromRedis() {
   try {
     const data = await redis.get(CACHE_KEY);
     return data ? data : null;
   } catch (err) {
     console.error("Redis get error:", err.message);
-    return null; // Redis недоступен — считаем, что кэша нет
+    return null;
   }
 }
 
-// Безопасная запись в кэш
-async function setCachedMetrics(metrics) {
+async function saveCacheToRedis(metrics) {
+  if (!metrics) {
+    console.error("Redis set error: Попытка сохранить пустые данные. Аргумент metrics =", metrics);
+    return;
+  }
+
   try {
     await redis.set(CACHE_KEY, metrics, { ex: CACHE_TTL_SECONDS });
-    console.log("Кэш обновлён в Redis");
+    console.log("Redis: кэш сохранён");
   } catch (err) {
     console.error("Redis set error:", err.message);
-    // Ничего страшного, данные отданы пользователю, просто кэш не обновился
   }
 }
 
-// Безопасное увеличение счётчика и проверка лимита
-async function checkAndIncrementForceLimit() {
-  const forcedKey = `forced_updates_${new Date().toISOString().split('T')[0]}`;
-  try {
-    const count = await redis.incr(forcedKey);
-    await redis.expire(forcedKey, 86400); // 1 сутки
-    return count <= MAX_FORCED_UPDATES;
-  } catch (err) {
-    console.error("Redis limit error:", err.message);
-    // Если Redis недоступен, разрешаем обновление (но можно и запретить)
-    return true;
-  }
-}
-
-// --- API ENDPOINT (исправленный) ---
+// --- API ENDPOINT ---
 app.get("/api/instagram-stats", async (req, res) => {
   try {
     const force = req.query.force === "true";
     const secret = req.query.secret;
 
-    // === Шаг 1: Обработка force-запроса (принудительное обновление) ===
+    // ========== ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ (force) ==========
     if (force) {
       if (secret !== ADMIN_SECRET) {
         return res.status(403).json({ error: "Неверное секретное имя" });
       }
 
-      // Проверяем лимит ДО вызова Apify (но увеличивать будем после успеха)
-      const withinLimit = await checkAndIncrementForceLimit();
+      // Проверка суточного лимита (счётчик в Redis)
+      const forcedKey = `forced_updates_${new Date().toISOString().split('T')[0]}`;
+      let withinLimit = true;
+      try {
+        const count = await redis.incr(forcedKey);
+        await redis.expire(forcedKey, 86400);
+        withinLimit = count <= MAX_FORCED_UPDATES;
+      } catch (err) {
+        console.error("Redis limit error:", err.message);
+        // Если Redis недоступен, разрешаем обновление (или можно запретить, по желанию)
+      }
+
       if (!withinLimit) {
         return res.status(429).json({ error: "Лимит обновлений (10 раз в день) исчерпан." });
       }
@@ -177,20 +180,41 @@ app.get("/api/instagram-stats", async (req, res) => {
       const { posts, followers } = await fetchInstagramStats();
       const metrics = buildMetrics(posts, followers);
 
-      // Сохраняем в Redis (не блокирует ответ)
-      await setCachedMetrics(metrics);
+      // проверяем, что метрики успешно сформировались
+      if (!metrics) {
+        throw new Error("Функция buildMetrics вернула пустой результат (null/undefined)");
+      }
+
+      // Обновляем локальный кэш
+      cachedMetrics = metrics;
+      cacheTimestamp = Date.now();
+
+      // Сохраняем в Redis (чтобы пережить сон)
+      await saveCacheToRedis(metrics);
 
       return res.json(metrics);
     }
 
-    // === Шаг 2: Обычный запрос — сначала пробуем кэш ===
-    const cached = await getCachedMetrics();
-    if (cached) {
-      console.log("Отдача из кэша Redis");
-      return res.json(cached);
+    // ========== ОБЫЧНЫЙ ЗАПРОС ==========
+    // 1. Если есть локальный кэш – отдаём его (Redis не трогаем)
+    if (cachedMetrics) {
+      console.log("Отдача из локального кэша (память)");
+      return res.json(cachedMetrics);
     }
 
-    // === Шаг 3: Кэша нет — НЕ вызываем Apify, отдаём заглушку ===
+    // 2. Локального кэша нет (сервер только запустился) – пробуем восстановить из Redis
+    console.log("Локальный кэш пуст, пробую Redis...");
+    const redisData = await loadCacheFromRedis();
+
+    if (redisData) {
+      // Заполняем локальный кэш
+      cachedMetrics = redisData;
+      cacheTimestamp = Date.now();
+      console.log("Данные загружены из Redis в локальный кэш");
+      return res.json(redisData);
+    }
+
+    // 3. Кэша нет нигде – возвращаем заглушку (без Apify)
     console.log("Кэш отсутствует, отдаю заглушку (без Apify)");
     return res.json({
       year: YEAR,
