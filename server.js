@@ -148,28 +148,33 @@ async function saveCacheToRedis(metrics) {
   }
 }
 
-let isUpdatingApify = false; // Блокировка от множественных параллельных запросов
+let activeUpdatePromise = null;
 
-async function triggerBackgroundUpdate() {
-  if (isUpdatingApify) return; // Если уже обновляем, второй раз не лезем
-  isUpdatingApify = true;
-  console.log("Запущено фоновое автоматическое обновление Apify...");
+function triggerUpdateAndWait() {
+  if (activeUpdatePromise) return activeUpdatePromise; // Если уже качаем, другие юзеры просто ждут
   
-  try {
-    const { posts, followers } = await fetchInstagramStats();
-    const metrics = buildMetrics(posts, followers);
-    
-    if (metrics) {
-      cachedMetrics = metrics;
-      cacheTimestamp = Date.now();
-      await saveCacheToRedis(metrics);
-      console.log("Фоновое обновление успешно завершено.");
+  console.log("Запуск обновления Apify...");
+  activeUpdatePromise = (async () => {
+    try {
+      const { posts, followers } = await fetchInstagramStats();
+      const metrics = buildMetrics(posts, followers);
+      
+      if (metrics) {
+        cachedMetrics = metrics;
+        cacheTimestamp = Date.now();
+        await saveCacheToRedis(metrics);
+        console.log("Обновление успешно завершено.");
+      }
+      return cachedMetrics;
+    } catch (err) {
+      console.error("Ошибка при обновлении:", err.message);
+      throw err;
+    } finally {
+      activeUpdatePromise = null;
     }
-  } catch (err) {
-    console.error("Ошибка при фоновом обновлении:", err.message);
-  } finally {
-    isUpdatingApify = false;
-  }
+  })();
+  
+  return activeUpdatePromise;
 }
 
 // --- API ENDPOINT ---
@@ -245,16 +250,30 @@ app.get("/api/instagram-stats", async (req, res) => {
     if (metricsToReturn && !metricsToReturn.stale) {
       const ageMs = Date.now() - new Date(metricsToReturn.lastUpdatedAt).getTime();
       
-      // Если данным больше 24 часов — отдаем старые, но тихонько обновляем в фоне
+      // Если данным больше 24 часов — ждем актуальных данных
       if (ageMs > UPDATE_INTERVAL_MS) {
-        triggerBackgroundUpdate();
+        console.log("Данные устарели, жду новых...");
+        try {
+          metricsToReturn = await triggerUpdateAndWait();
+        } catch (err) {
+          console.log("Не удалось обновить, отдаю старые данные");
+        }
       }
       return res.json(metricsToReturn);
     }
 
     // 4. Кэша нет нигде вообще (первый запуск сервера)
-    console.log("Кэш отсутствует, отдаю заглушку и стартую фоновое обновление");
-    triggerBackgroundUpdate(); // Инициируем сбор данных
+    console.log("Кэш отсутствует, ожидаю первую загрузку данных...");
+    try {
+      const freshMetrics = await triggerUpdateAndWait();
+      return res.json(freshMetrics);
+    } catch (err) {
+      // Если даже первая загрузка упала, возвращаем ошибку
+      return res.status(502).json({
+        error: "Не удалось получить первичные данные Instagram.",
+        details: err.message,
+      });
+    }
     
     return res.json({
       year: YEAR,

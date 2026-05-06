@@ -18,6 +18,13 @@ const nodes = {
   stateLoading: document.getElementById("state-loading"),
 };
 
+// Предзагрузка изображений модального окна в кэш браузера для мгновенного переключения
+const preloadImages = ['/images/IMG_1.png', '/images/IMG_2.png', '/images/IMG_3.jpg'];
+preloadImages.forEach(src => {
+  const img = new Image();
+  img.src = src;
+});
+
 let lastFetchTimestamp = 0;
 let isModalLocked = false;
 let currentModalState = null;          // 'initial', 'error', 'loading'
@@ -114,10 +121,16 @@ let loadingVisualTimeout = null;
 
 function setModalState(state, errorMessage = "") {
   // Если мы уже в состоянии ошибки и пытаемся снова вызвать ошибку
+  // Если мы уже в состоянии ошибки и пытаемся снова вызвать ошибку
   if (state === "error" && currentModalState === "error") {
-    modalNodes.input.value = ""; // Просто чистим поле
+    modalNodes.input.value = ""; 
+    
+    // Перезапускаем анимацию тряски
+    modalNodes.input.classList.remove("error-shake");
+    void modalNodes.input.offsetWidth; 
+    modalNodes.input.classList.add("error-shake");
+    
     modalNodes.input.focus();
-    // Можно добавить легкое дрожание (shake) для фидбека, если захочешь
     return;
   }
 
@@ -140,6 +153,12 @@ function setModalState(state, errorMessage = "") {
     modalNodes.input.classList.remove("hidden");
     modalNodes.closeBtn.classList.remove("hidden");
     modalNodes.input.value = "";
+    
+    // Удаляем класс, триггерим reflow и добавляем класс заново для повторного воспроизведения анимации
+    modalNodes.input.classList.remove("error-shake");
+    void modalNodes.input.offsetWidth; 
+    modalNodes.input.classList.add("error-shake");
+    
     modalNodes.input.focus();
     isModalLocked = false;
   } 
@@ -182,7 +201,7 @@ modalNodes.input.addEventListener("keypress", async (e) => {
   // то показываем Содержимое 3. Если ответил быстро (ошибка) — отменяем таймер.
   loadingVisualTimeout = setTimeout(() => {
     setModalState("loading");
-  }, 400);
+  }, 400);  
 
   try {
     const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
@@ -207,6 +226,10 @@ modalNodes.input.addEventListener("keypress", async (e) => {
     const errorMsg = (error.status === 403) ? "Доступ запрещен. Вы не админ!" : error.message;
     setModalState("error", errorMsg);
   }
+});
+
+modalNodes.input.addEventListener("input", () => {
+  modalNodes.input.classList.remove("error-shake");
 });
 
 nodes.refreshButton.addEventListener("click", openModal);
