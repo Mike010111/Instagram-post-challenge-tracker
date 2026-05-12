@@ -1,4 +1,3 @@
-// script.js
 const nodes = {
   followers: document.getElementById("followers"),
   followersGrowth: document.getElementById("followers-growth"),
@@ -12,14 +11,9 @@ const nodes = {
   updatedAt: document.getElementById("updated-at"),
   refreshButton: document.getElementById("refresh-button"),
   ring: document.getElementById("ring-progress"),
-  modal: document.getElementById("admin-modal"),
-  modalClose: document.getElementById("modal-close"),
-  stateInitial: document.getElementById("state-initial"),
-  stateError: document.getElementById("state-error"),
-  stateLoading: document.getElementById("state-loading"),
 };
 
-// Предзагрузка изображений модального окна в кэш браузера
+// Предзагрузка изображений
 const preloadImages = ['/images/IMG_1.png', '/images/IMG_2.png', '/images/IMG_3.jpg'];
 preloadImages.forEach(src => {
   const img = new Image();
@@ -28,13 +22,14 @@ preloadImages.forEach(src => {
 
 let lastFetchTimestamp = 0;
 let isModalLocked = false;
-let currentModalState = null;          // 'initial', 'error', 'loading'
+let currentModalState = null;
+
 const ringRadius = 64;
 const ringLength = 2 * Math.PI * ringRadius;
 nodes.ring.style.strokeDasharray = `${ringLength}`;
 nodes.ring.style.strokeDashoffset = `${ringLength}`;
 
-// ---------- Вспомогательные функции ----------
+// ---------- Вспомогательные функции (без изменений) ----------
 function formatInt(value) {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
@@ -85,10 +80,9 @@ function updateUI(data) {
   applyRing(data.progressPercent);
 }
 
-async function fetchStats(url = "/api/instagram-stats") {
+async function fetchStats(url) {
   const response = await fetch(url);
   const data = await response.json();
-
   if (!response.ok) {
     const message = [data.error, data.details].filter(Boolean).join(": ");
     throw { status: response.status, message: message || "Ошибка сервера" };
@@ -100,14 +94,14 @@ async function loadData() {
   nodes.motivation.classList.remove("error");
   nodes.motivation.textContent = "Обновляю данные...";
   try {
-    const data = await fetchStats();
+    const data = await fetchStats("/api/instagram-stats");
     updateUI(data);
   } catch (error) {
     setError(`Не получилось обновить данные: ${error.message}`);
   }
 }
 
-// --- Модальное окно (State Machine) ---
+// ---------- Модальное окно ----------
 const modalNodes = {
   overlay: document.getElementById("admin-modal"),
   closeBtn: document.getElementById("modal-close"),
@@ -118,42 +112,49 @@ const modalNodes = {
   content: document.querySelector(".modal-content"),
 };
 
-function setModalLocked(locked) {
-  isModalLocked = locked;
-  if (locked) {
-    modalNodes.content.classList.add("locked");
-    modalNodes.input.disabled = true;
-  } else {
-    modalNodes.content.classList.remove("locked");
-    modalNodes.input.disabled = false;
-  }
+function setSpinner(show) {
+  modalNodes.content.classList.toggle("locked", show);
+}
+
+function setCloseButtonDisabled(disabled) {
+  modalNodes.closeBtn.classList.toggle("disabled", disabled);
+}
+
+function setModalLock(lock) {
+  isModalLocked = lock;
+  setCloseButtonDisabled(lock);
+  modalNodes.input.disabled = lock;
 }
 
 function setModalState(state, errorMessage = "") {
-  // Убираем любую блокировку, кроме случаев, когда явно нужно оставить (для loading)
+  // Повторная ошибка – только анимация
   if (currentModalState === "error" && state === "error") {
-    // Повторная ошибка: только перезапуск анимации без смены содержимого
+    modalNodes.title.textContent = errorMessage || "Доступ запрещен. Попробуйте еще раз:";
     modalNodes.input.value = "";
     modalNodes.input.classList.remove("error-shake");
     void modalNodes.input.offsetWidth;
     modalNodes.input.classList.add("error-shake");
     modalNodes.input.focus();
+    // Снимаем возможную блокировку
+    setModalLock(false);
+    setSpinner(false);
     return;
   }
 
   currentModalState = state;
 
-  // Выход из locked-режима, если только не перешли в loading
-  if (state !== "loading") {
-    setModalLocked(false);
-  }
+  // Спиннер снимаем во всех состояниях, кроме явного ожидания
+  setSpinner(false);
+
+  // Блокировка закрытия
+  const closeLocked = (state === "loading");
+  setModalLock(closeLocked);
 
   if (state === "initial") {
     modalNodes.img.src = "/images/IMG_1.png";
     modalNodes.title.textContent = "А вы кто?";
     modalNodes.desc.classList.add("hidden");
     modalNodes.input.classList.remove("hidden", "error-shake");
-    modalNodes.closeBtn.classList.remove("hidden");
     modalNodes.input.value = "";
     setTimeout(() => modalNodes.input.focus(), 50);
   } 
@@ -162,7 +163,6 @@ function setModalState(state, errorMessage = "") {
     modalNodes.title.textContent = errorMessage || "Доступ запрещен. Попробуйте еще раз:";
     modalNodes.desc.classList.add("hidden");
     modalNodes.input.classList.remove("hidden");
-    modalNodes.closeBtn.classList.remove("hidden");
     modalNodes.input.value = "";
     modalNodes.input.classList.remove("error-shake");
     void modalNodes.input.offsetWidth;
@@ -174,8 +174,6 @@ function setModalState(state, errorMessage = "") {
     modalNodes.title.textContent = "Пушка! Погнали делать контент :)";
     modalNodes.desc.classList.remove("hidden");
     modalNodes.input.classList.add("hidden");
-    modalNodes.closeBtn.classList.add("hidden");
-    setModalLocked(true); // оставляем заблокированным до закрытия
   }
 }
 
@@ -187,53 +185,62 @@ function openModal() {
 function closeModal() {
   if (isModalLocked) return;
   modalNodes.overlay.classList.add("hidden");
-  setModalLocked(false); // на всякий случай снимаем блокировку
+  // Сброс блокировок при закрытии
+  setModalLock(false);
+  setSpinner(false);
 }
 
-// Слушатели закрытия
 modalNodes.closeBtn.addEventListener("click", closeModal);
 modalNodes.overlay.addEventListener("click", (e) => {
   if (e.target === modalNodes.overlay) closeModal();
 });
 
-// Обработка Enter
+// Основной обработчик Enter
 modalNodes.input.addEventListener("keypress", async (e) => {
   if (e.key !== "Enter") return;
 
   const secret = modalNodes.input.value.trim();
   if (!secret) return;
 
-  // Блокируем ввод и показываем спиннер
-  setModalLocked(true);
+  // --- Фаза 1: проверка секрета (со спиннером) ---
+  setSpinner(true);
+  setModalLock(true);
   modalNodes.input.disabled = true;
 
   try {
-    const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
-    const data = await fetchStats(url);
+    // Быстрый запрос проверки секрета
+    const checkRes = await fetch(`/api/check-secret?secret=${encodeURIComponent(secret)}`);
+    if (!checkRes.ok) {
+      // Секрет неверный – переходим в ошибку
+      throw { status: checkRes.status, message: "Доступ запрещен. Вы не админ!" };
+    }
 
-    // Успех – переходим в loading
-    setModalState("loading");
+    // Секрет верен – сразу показываем "Пушка!" без спиннера
+    setModalState("loading");  // здесь спиннер уже снят, крестик заблокирован
+
+    // --- Фаза 2: запуск обновления данных (без спиннера) ---
+    const dataUrl = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
+    const data = await fetchStats(dataUrl);
     updateUI(data);
 
-    // Даём пользователю увидеть сообщение (не менее 1 секунды)
-    await new Promise(r => setTimeout(r, 1000));
-
-    // Разблокируем и закрываем
-    setModalLocked(false);
+    // После обновления закрываем окно (без задержки)
+    setModalLock(false);
     closeModal();
-  } catch (error) {
-    // Ошибка – снимаем блокировку и показываем соответствующее состояние
-    const errorMsg = (error.status === 403) ? "Доступ запрещен. Вы не админ!" : error.message;
 
+  } catch (error) {
+    // Ошибка на любом этапе (кроме успеха): убираем спиннер и показываем ошибку
+    setSpinner(false);
+    const errorMsg = error.message || "Ошибка обновления";
     if (currentModalState === "initial") {
       setModalState("error", errorMsg);
     } else {
-      // Уже находимся в состоянии error – просто перезапускаем анимацию
+      // Уже в ошибке – просто обновляем текст и анимацию
       setModalState("error", errorMsg);
     }
   }
 });
 
+// Сброс красной обводки при вводе
 modalNodes.input.addEventListener("input", () => {
   modalNodes.input.classList.remove("error-shake");
 });

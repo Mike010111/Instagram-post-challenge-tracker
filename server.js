@@ -177,6 +177,15 @@ function triggerUpdateAndWait() {
   return activeUpdatePromise;
 }
 
+// Проверка секрета без запуска Apify
+app.get("/api/check-secret", (req, res) => {
+  const secret = req.query.secret;
+  if (secret !== ADMIN_SECRET) {
+    return res.status(403).json({ error: "Неверное секретное имя" });
+  }
+  return res.json({ valid: true });
+});
+
 // --- API ENDPOINT ---
 app.get("/api/instagram-stats", async (req, res) => {
   try {
