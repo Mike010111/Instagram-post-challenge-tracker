@@ -1,3 +1,4 @@
+// script.js
 const nodes = {
   followers: document.getElementById("followers"),
   followersGrowth: document.getElementById("followers-growth"),
@@ -18,7 +19,7 @@ const nodes = {
   stateLoading: document.getElementById("state-loading"),
 };
 
-// Предзагрузка изображений модального окна в кэш браузера для мгновенного переключения
+// Предзагрузка изображений модального окна в кэш браузера
 const preloadImages = ['/images/IMG_1.png', '/images/IMG_2.png', '/images/IMG_3.jpg'];
 preloadImages.forEach(src => {
   const img = new Image();
@@ -28,7 +29,6 @@ preloadImages.forEach(src => {
 let lastFetchTimestamp = 0;
 let isModalLocked = false;
 let currentModalState = null;          // 'initial', 'error', 'loading'
-let loadingTimer = null;              // для отложенного показа loading
 const ringRadius = 64;
 const ringLength = 2 * Math.PI * ringRadius;
 nodes.ring.style.strokeDasharray = `${ringLength}`;
@@ -115,36 +115,47 @@ const modalNodes = {
   title: document.getElementById("modal-title"),
   desc: document.getElementById("modal-desc"),
   input: document.getElementById("admin-input"),
+  content: document.querySelector(".modal-content"),
 };
 
-let loadingVisualTimeout = null;
+function setModalLocked(locked) {
+  isModalLocked = locked;
+  if (locked) {
+    modalNodes.content.classList.add("locked");
+    modalNodes.input.disabled = true;
+  } else {
+    modalNodes.content.classList.remove("locked");
+    modalNodes.input.disabled = false;
+  }
+}
 
 function setModalState(state, errorMessage = "") {
-  // Если мы уже в состоянии ошибки и пытаемся снова вызвать ошибку
-  // Если мы уже в состоянии ошибки и пытаемся снова вызвать ошибку
-  if (state === "error" && currentModalState === "error") {
-    modalNodes.input.value = ""; 
-    
-    // Перезапускаем анимацию тряски
+  // Убираем любую блокировку, кроме случаев, когда явно нужно оставить (для loading)
+  if (currentModalState === "error" && state === "error") {
+    // Повторная ошибка: только перезапуск анимации без смены содержимого
+    modalNodes.input.value = "";
     modalNodes.input.classList.remove("error-shake");
-    void modalNodes.input.offsetWidth; 
+    void modalNodes.input.offsetWidth;
     modalNodes.input.classList.add("error-shake");
-    
     modalNodes.input.focus();
     return;
   }
 
   currentModalState = state;
 
+  // Выход из locked-режима, если только не перешли в loading
+  if (state !== "loading") {
+    setModalLocked(false);
+  }
+
   if (state === "initial") {
     modalNodes.img.src = "/images/IMG_1.png";
     modalNodes.title.textContent = "А вы кто?";
     modalNodes.desc.classList.add("hidden");
-    modalNodes.input.classList.remove("hidden");
+    modalNodes.input.classList.remove("hidden", "error-shake");
     modalNodes.closeBtn.classList.remove("hidden");
     modalNodes.input.value = "";
     setTimeout(() => modalNodes.input.focus(), 50);
-    isModalLocked = false;
   } 
   else if (state === "error") {
     modalNodes.img.src = "/images/IMG_2.png";
@@ -153,14 +164,10 @@ function setModalState(state, errorMessage = "") {
     modalNodes.input.classList.remove("hidden");
     modalNodes.closeBtn.classList.remove("hidden");
     modalNodes.input.value = "";
-    
-    // Удаляем класс, триггерим reflow и добавляем класс заново для повторного воспроизведения анимации
     modalNodes.input.classList.remove("error-shake");
-    void modalNodes.input.offsetWidth; 
+    void modalNodes.input.offsetWidth;
     modalNodes.input.classList.add("error-shake");
-    
     modalNodes.input.focus();
-    isModalLocked = false;
   } 
   else if (state === "loading") {
     modalNodes.img.src = "/images/IMG_3.jpg";
@@ -168,7 +175,7 @@ function setModalState(state, errorMessage = "") {
     modalNodes.desc.classList.remove("hidden");
     modalNodes.input.classList.add("hidden");
     modalNodes.closeBtn.classList.add("hidden");
-    isModalLocked = true;
+    setModalLocked(true); // оставляем заблокированным до закрытия
   }
 }
 
@@ -180,6 +187,7 @@ function openModal() {
 function closeModal() {
   if (isModalLocked) return;
   modalNodes.overlay.classList.add("hidden");
+  setModalLocked(false); // на всякий случай снимаем блокировку
 }
 
 // Слушатели закрытия
@@ -195,36 +203,34 @@ modalNodes.input.addEventListener("keypress", async (e) => {
   const secret = modalNodes.input.value.trim();
   if (!secret) return;
 
-  const startTime = Date.now();
-  
-  // Устанавливаем таймер: если через 250мс сервер не ответил (значит пароль верный и идет долгий Apify),
-  // то показываем Содержимое 3. Если ответил быстро (ошибка) — отменяем таймер.
-  loadingVisualTimeout = setTimeout(() => {
-    setModalState("loading");
-  }, 400);  
+  // Блокируем ввод и показываем спиннер
+  setModalLocked(true);
+  modalNodes.input.disabled = true;
 
   try {
     const url = `/api/instagram-stats?force=true&secret=${encodeURIComponent(secret)}`;
     const data = await fetchStats(url);
-    
-    // Если запрос прошел успешно (200 OK)
-    clearTimeout(loadingVisualTimeout); // На всякий случай
-    setModalState("loading"); // Гарантируем, что успех показан
+
+    // Успех – переходим в loading
+    setModalState("loading");
     updateUI(data);
 
-    const elapsed = Date.now() - startTime;
-    if (elapsed < 1000) {
-      await new Promise(r => setTimeout(r, 1000 - elapsed));
-    }
-    
-    isModalLocked = false;
+    // Даём пользователю увидеть сообщение (не менее 1 секунды)
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Разблокируем и закрываем
+    setModalLocked(false);
     closeModal();
   } catch (error) {
-    // Ошибка пришла быстро — отменяем показ Loading
-    clearTimeout(loadingVisualTimeout);
-    
+    // Ошибка – снимаем блокировку и показываем соответствующее состояние
     const errorMsg = (error.status === 403) ? "Доступ запрещен. Вы не админ!" : error.message;
-    setModalState("error", errorMsg);
+
+    if (currentModalState === "initial") {
+      setModalState("error", errorMsg);
+    } else {
+      // Уже находимся в состоянии error – просто перезапускаем анимацию
+      setModalState("error", errorMsg);
+    }
   }
 });
 

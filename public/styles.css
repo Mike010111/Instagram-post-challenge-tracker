@@ -286,3 +286,34 @@ button:hover {
   20%, 60% { transform: translateX(-6px); }
   40%, 80% { transform: translateX(6px); }
 }
+
+.modal-content.locked::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border: 3px solid var(--accent-soft);
+  border-top: 3px solid var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(2px);
+  z-index: 10;
+}
+
+.modal-content.locked {
+  pointer-events: none; /* запрет любых кликов по содержимому, кроме overlay-закрытия? */
+}
+
+.modal-content.locked .modal-close {
+  pointer-events: none; /* кнопка закрытия недоступна при locked */
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
