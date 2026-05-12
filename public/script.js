@@ -18,6 +18,9 @@ const preloadImages = ['/images/IMG_1.png', '/images/IMG_2.png', '/images/IMG_3.
 preloadImages.forEach(src => {
   const img = new Image();
   img.src = src;
+  console.log("МСК:", new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }));
+  console.log("БГ:", new Date().toLocaleString("ru-RU", { timeZone: "Europe/Belgrade" }));
+
 });
 
 let lastFetchTimestamp = 0;
@@ -74,7 +77,7 @@ function updateUI(data) {
   nodes.avgRequired.textContent = `${formatAvg(data.requiredAvgPostsPerDay)} / день`;
   nodes.postedThisYear.textContent = formatInt(data.postedThisYear);
   nodes.motivation.textContent = data.motivation;
-  nodes.updatedAt.textContent = `Обновлено: ${new Date(data.lastUpdatedAt).toLocaleString("ru-RU")}`;
+  nodes.updatedAt.textContent = `Обновлено: ${new Date(data.lastUpdatedAt).toLocaleString("ru-RU", {timeZone: "Europe/Belgrade",})}`;
   
   lastFetchTimestamp = new Date(data.lastUpdatedAt).getTime();
   applyRing(data.progressPercent);

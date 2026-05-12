@@ -15,7 +15,7 @@ const redis = new Redis({
 
 const INSTAGRAM_USERNAME = "romejkomart";
 const YEAR = 2026;
-const START_OF_YEAR_POSTS = 358;
+const START_OF_YEAR_POSTS = 359;
 const START_OF_YEAR_FOLLOWERS = 1775;
 const YEAR_GOAL_POSTS = 300;
 
@@ -23,7 +23,22 @@ const CACHE_KEY = "instagram_metrics_cache";
 const CACHE_TTL_SECONDS = 60 * 60 * 24; // TTL в Redis – 24 часа
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET_NAME || "admin";
-const MAX_FORCED_UPDATES = 10;
+const MAX_FORCED_UPDATES = 15;
+
+function getCurrentBelgradeDate() {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Belgrade',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = +parts.find(p => p.type === 'year').value;
+  const month = +parts.find(p => p.type === 'month').value;
+  const day = +parts.find(p => p.type === 'day').value;
+  return { year, month, day };
+}
+
 
 // === Локальный кэш (память процесса) ===
 let cachedMetrics = null;       // сами данные
@@ -47,8 +62,8 @@ function getDaysElapsedInYearInclusive(now) {
 }
 
 function getChallengeYearDayMetrics(now) {
-  const challengeStart = new Date(YEAR, 0, 1);
-  const challengeEnd = new Date(YEAR, 11, 31, 23, 59, 59, 999);
+  const challengeStart = new Date(Date.UTC(YEAR, 0, 1));
+  const challengeEnd = new Date(Date.UTC(YEAR, 11, 31, 23, 59, 59, 999));
   const totalDays = 365;
 
   if (now < challengeStart) return { daysElapsedInclusive: 0, daysRemainingInclusive: totalDays, challengeYearFinished: false };
@@ -71,15 +86,17 @@ function motivationalComment({ progressPercent, remainingPosts, requiredAvgPerDa
 }
 
 function buildMetrics(currentPosts, currentFollowers) {
-  const now = new Date(); // Берем обычное системное время
+  const nowReal = new Date();                          // реальное UTC-время
+  const belgrade = getCurrentBelgradeDate();           // { year, month, day } по Белграду
+  const nowDateBelgrade = new Date(Date.UTC(belgrade.year, belgrade.month - 1, belgrade.day));
+
   const postedThisYear = Math.max(0, currentPosts - START_OF_YEAR_POSTS);
   const followersGrowth = currentFollowers - START_OF_YEAR_FOLLOWERS;
   const remainingPosts = Math.max(0, YEAR_GOAL_POSTS - postedThisYear);
-  const { daysElapsedInclusive: daysElapsed, daysRemainingInclusive: daysRemaining, challengeYearFinished } = getChallengeYearDayMetrics(now);
-  
-  const currentAverageRaw = daysElapsed > 0 ? postedThisYear / daysElapsed : 0;
-  const currentRequiredAverageRaw = daysRemaining > 0 ? remainingPosts / daysRemaining : 0;
-  
+  const { daysElapsedInclusive, daysRemainingInclusive, challengeYearFinished } = getChallengeYearDayMetrics(nowDateBelgrade);
+
+  const currentAverageRaw = daysElapsedInclusive > 0 ? postedThisYear / daysElapsedInclusive : 0;
+  const currentRequiredAverageRaw = daysRemainingInclusive > 0 ? remainingPosts / daysRemainingInclusive : 0;
   const progressPercent = Math.min(100, (postedThisYear / YEAR_GOAL_POSTS) * 100);
 
   return {
@@ -89,8 +106,8 @@ function buildMetrics(currentPosts, currentFollowers) {
     followersGrowth,
     postedThisYear,
     remainingPosts,
-    daysElapsedInclusive: daysElapsed,
-    daysRemainingInclusive: daysRemaining,
+    daysElapsedInclusive,
+    daysRemainingInclusive,
     currentAvgPostsPerDay: Number(currentAverageRaw.toFixed(2)),
     requiredAvgPostsPerDay: Number(currentRequiredAverageRaw.toFixed(2)),
     progressPercent: Number(progressPercent.toFixed(1)),
@@ -101,7 +118,7 @@ function buildMetrics(currentPosts, currentFollowers) {
       requiredAvgPerDay: currentRequiredAverageRaw,
       challengeYearFinished,
     }),
-    lastUpdatedAt: now.toISOString(),
+    lastUpdatedAt: nowReal.toISOString(),   // реальное время обновления (UTC)
   };
 }
 
@@ -211,7 +228,7 @@ app.get("/api/instagram-stats", async (req, res) => {
       }
 
       if (!withinLimit) {
-        return res.status(429).json({ error: "Лимит обновлений (10 раз в день) исчерпан." });
+        return res.status(429).json({ error: "Лимит обновлений (15 раз в день) исчерпан." });
       }
 
       console.log("Принудительное обновление: запрос к Apify...");
