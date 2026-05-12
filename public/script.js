@@ -13,16 +13,6 @@ const nodes = {
   ring: document.getElementById("ring-progress"),
 };
 
-// Предзагрузка изображений
-const preloadImages = ['/images/IMG_1.png', '/images/IMG_2.png', '/images/IMG_3.jpg'];
-preloadImages.forEach(src => {
-  const img = new Image();
-  img.src = src;
-  console.log("МСК:", new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }));
-  console.log("БГ:", new Date().toLocaleString("ru-RU", { timeZone: "Europe/Belgrade" }));
-
-});
-
 let lastFetchTimestamp = 0;
 let isModalLocked = false;
 let currentModalState = null;
@@ -108,12 +98,20 @@ async function loadData() {
 const modalNodes = {
   overlay: document.getElementById("admin-modal"),
   closeBtn: document.getElementById("modal-close"),
-  img: document.getElementById("modal-img"),
+  imgInitial: document.getElementById("modal-img-initial"),
+  imgError: document.getElementById("modal-img-error"),
+  imgLoading: document.getElementById("modal-img-loading"),
   title: document.getElementById("modal-title"),
   desc: document.getElementById("modal-desc"),
   input: document.getElementById("admin-input"),
   content: document.querySelector(".modal-content"),
 };
+
+function showModalImage(state) {
+  modalNodes.imgInitial.classList.toggle("hidden", state !== "initial");
+  modalNodes.imgError.classList.toggle("hidden",   state !== "error");
+  modalNodes.imgLoading.classList.toggle("hidden", state !== "loading");
+}
 
 function setSpinner(show) {
   modalNodes.content.classList.toggle("locked", show);
@@ -154,7 +152,7 @@ function setModalState(state, errorMessage = "") {
   setModalLock(closeLocked);
 
   if (state === "initial") {
-    modalNodes.img.src = "/images/IMG_1.png";
+    showModalImage("initial");
     modalNodes.title.textContent = "А вы кто?";
     modalNodes.desc.classList.add("hidden");
     modalNodes.input.classList.remove("hidden", "error-shake");
@@ -162,7 +160,7 @@ function setModalState(state, errorMessage = "") {
     setTimeout(() => modalNodes.input.focus(), 50);
   } 
   else if (state === "error") {
-    modalNodes.img.src = "/images/IMG_2.png";
+    showModalImage("error");
     modalNodes.title.textContent = errorMessage || "Доступ запрещен. Попробуйте еще раз:";
     modalNodes.desc.classList.add("hidden");
     modalNodes.input.classList.remove("hidden");
@@ -173,7 +171,7 @@ function setModalState(state, errorMessage = "") {
     modalNodes.input.focus();
   } 
   else if (state === "loading") {
-    modalNodes.img.src = "/images/IMG_3.jpg";
+    showModalImage("loading");
     modalNodes.title.textContent = "Пушка! Погнали делать контент :)";
     modalNodes.desc.classList.remove("hidden");
     modalNodes.input.classList.add("hidden");

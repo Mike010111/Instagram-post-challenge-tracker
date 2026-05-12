@@ -226,12 +226,21 @@ button:hover {
   color: var(--danger);
 }
 
-.modal-img-wrap img {
+.modal-img-wrap {
   width: 120px;
   height: 120px;
+  margin: 0 auto 16px;
+  position: relative;
+}
+
+.modal-img-wrap img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border-radius: 16px; /* Немного закругленные углы */
-  margin-bottom: 16px;
+  border-radius: 16px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
