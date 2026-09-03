@@ -287,7 +287,7 @@ button:hover {
 
 .admin-secret-input.error-shake {
   border-color: var(--danger);
-  border-width: 2px; /* оставляем прежней или чуть толще? Лучше увеличить до 2.5px */
+  border-width: 2px;
   box-shadow: 0 0 0 1px rgba(240, 91, 73, 0.25); /* мягкое красное свечение */
   animation: shake 0.4s ease-in-out;
   transition: border-color 0.2s ease, box-shadow 0.2s ease; /* плавное появление */
@@ -317,11 +317,10 @@ button:hover {
 }
 
 .modal-content.locked {
-  pointer-events: none; /* запрет любых кликов по содержимому, кроме overlay-закрытия? */
+  pointer-events: none;
 }
 
 .modal-content.locked .modal-close {
-  /*pointer-events: none; /* кнопка закрытия недоступна при locked */
   opacity: 0.5;
 }
 

@@ -22,7 +22,7 @@ const ringLength = 2 * Math.PI * ringRadius;
 nodes.ring.style.strokeDasharray = `${ringLength}`;
 nodes.ring.style.strokeDashoffset = `${ringLength}`;
 
-// ---------- Вспомогательные функции (без изменений) ----------
+// --- Вспомогательные функции ---
 function formatInt(value) {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
@@ -94,7 +94,7 @@ async function loadData() {
   }
 }
 
-// ---------- Модальное окно ----------
+// --- Модальное окно ---
 const modalNodes = {
   overlay: document.getElementById("admin-modal"),
   closeBtn: document.getElementById("modal-close"),

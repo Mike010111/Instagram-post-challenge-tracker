@@ -3,22 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Instagram 2026 Planner</title>
+  <title>Content Challenge Tracker — прогресс по посту в Instagram</title>
+  <meta name="description" content="Дашборд для отслеживания прогресса контент-челленджа: сколько постов опубликовано, сколько осталось до годовой цели и какой темп нужен, чтобы уложиться в срок." />
+  <link rel="icon" href="/images/favicon.svg" />
   <link rel="stylesheet" href="/styles.css" />
   <style>
-    /* Модальное окно: контейнер для состояний с относительным позиционированием */
+
     #modal-state-container {
       position: relative;
-      min-height: 280px; /* примерная высота, чтобы модалка не дёргалась */
+      min-height: 280px;
     }
+
     .modal-state {
       position: absolute;
       top: 0;
       left: 0;
       width: 100%;
-      display: none; /* по умолчанию скрыты */
+      display: none;
     }
-    /* Крестик закрытия */
+
     #modal-close.hidden {
       display: none;
     }
@@ -27,15 +30,15 @@
 <body>
   <main class="layout">
     <section class="card hero">
-      <h1>300 единиц контента челлендж</h1>
+      <h1>300 единиц контента — челлендж</h1>
       <p class="subtitle">@romejkomart</p>
       <p id="motivation" class="motivation">Загружаю актуальные данные...</p>
     </section>
 
     <section class="card progress-card">
-      <h2 class="progress-title">Прогресс челленджа по постам за 2026</h2>
+      <h2 class="progress-title">Прогресс челленджа по постам за 2026 год</h2>
       <div class="ring-wrap">
-        <svg class="progress-ring" viewBox="0 0 160 160">
+        <svg class="progress-ring" viewBox="0 0 160 160" role="img" aria-label="Прогресс выполнения годовой цели по постам">
           <circle class="ring-bg" cx="80" cy="80" r="64"></circle>
           <circle id="ring-progress" class="ring-progress" cx="80" cy="80" r="64"></circle>
         </svg>
@@ -68,13 +71,14 @@
         <p id="days-remaining">-</p>
       </article>
     </section>
+
     <section class="stats-grid">
       <article class="card stat">
         <h2>Текущее среднее в день</h2>
         <p id="avg-current">-</p>
       </article>
       <article class="card stat">
-        <h2>Текущее необходимое среднее в день</h2>
+        <h2>Необходимое среднее в день</h2>
         <p id="avg-required">-</p>
       </article>
     </section>
@@ -85,19 +89,25 @@
     </section>
   </main>
 
-  <!-- МОДАЛЬНОЕ ОКНО -->
+  <!-- Модальное окно администратора: доступ к принудительному обновлению данных по секретному слову -->
   <div id="admin-modal" class="modal-overlay hidden">
     <div class="modal-content">
-      <button id="modal-close" class="modal-close">&times;</button>
+      <button id="modal-close" class="modal-close" aria-label="Закрыть окно">&times;</button>
       <div id="modal-state-container">
         <div class="modal-img-wrap">
-          <img id="modal-img-initial" src="/images/IMG_1.png" alt="Initial" />
-          <img id="modal-img-error"   src="/images/IMG_2.png" alt="Error" class="hidden" />
-          <img id="modal-img-loading" src="/images/IMG_3.jpg" alt="Loading" class="hidden" />
+          <img id="modal-img-initial" src="/images/admin-question.png" alt="Запрос доступа" />
+          <img id="modal-img-error" src="/images/admin-denied.png" alt="Доступ запрещён" class="hidden" />
+          <img id="modal-img-loading" src="/images/admin-loading.jpg" alt="Идёт обновление данных" class="hidden" />
         </div>
         <h3 id="modal-title">А вы кто?</h3>
         <p id="modal-desc" class="hidden">Обновление данных...</p>
-        <input type="text" id="admin-input" class="admin-secret-input" placeholder="Enter your name:" autocomplete="off" />
+        <input
+          type="text"
+          id="admin-input"
+          class="admin-secret-input"
+          placeholder="Введите секретное слово"
+          autocomplete="off"
+        />
       </div>
     </div>
   </div>

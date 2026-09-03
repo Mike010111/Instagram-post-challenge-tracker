@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="main-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F58529" />
+      <stop offset="50%" stop-color="#DD2A7B" />
+      <stop offset="100%" stop-color="#8134AF" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="128" fill="url(#main-grad)" />
+  <!-- Sparkle Symbol -->
+  <path d="M 256 80 Q 290 220 432 256 Q 290 292 256 432 Q 222 292 80 256 Q 222 220 256 80 Z" fill="white" />
+</svg>

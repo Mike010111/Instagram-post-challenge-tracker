@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>404 — Страница не найдена</title>
+    <link rel="icon" href="/images/favicon.ico">
     <link rel="stylesheet" href="/styles.css">
     <style>
         body {
@@ -13,26 +14,20 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
-            background: var(--bg); /* Используем твой основной фон */
+            background: var(--bg);
             font-family: 'Inter', -apple-system, sans-serif;
             overflow: hidden;
         }
 
-        /* Увеличенная в 1.5 раза карточка с профессиональными эффектами */
         .error-container {
             background: var(--card);
-            /* Увеличили ширину с 400px до 600px */
-            width: min(600px, 90vw); 
-            /* Увеличили внутренние отступы для "воздуха" */
+            width: min(600px, 90vw);
             padding: 30px 40px;
             border-radius: 40px;
             text-align: center;
-            
-            /* Сложная тень для эффекта глубины */
-            box-shadow: 
+            box-shadow:
                 0 10px 20px rgba(129, 75, 29, 0.04),
                 0 30px 60px rgba(129, 75, 29, 0.08);
-            
             border: 1px solid rgba(255, 255, 255, 0.6);
             position: relative;
             animation: cardAppear 0.6s cubic-bezier(0.16, 1, 0.3, 1);
@@ -49,13 +44,11 @@
         }
 
         .error-img {
-            /* Увеличенный размер картинки */
             width: 100%;
-            max-width: 420px; 
+            max-width: 420px;
             height: auto;
             border-radius: 24px;
-            /* Мягкое свечение под картинкой */
-            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease;
         }
 
@@ -63,16 +56,7 @@
             transform: scale(1.02);
         }
 
-        .error-title {
-            font-size: 2.2rem; /* Крупный заголовок */
-            font-weight: 800;
-            color: var(--text);
-            margin: 0;
-            letter-spacing: -0.02em;
-            line-height: 1.2;
-        }
-
-        .error-title2 {
+        .error-code {
             font-size: 2.5rem;
             font-weight: 800;
             color: var(--text);
@@ -82,7 +66,27 @@
             padding: 10px;
         }
 
-        /* Декоративный элемент под текстом для профессионального вида */
+        .error-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: var(--text);
+            margin: 0;
+            letter-spacing: -0.02em;
+            line-height: 1.2;
+        }
+
+        .error-back-link {
+            display: inline-block;
+            margin-top: 24px;
+            color: var(--accent);
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .error-back-link:hover {
+            text-decoration: underline;
+        }
+
         .error-container::after {
             content: "";
             position: absolute;
@@ -90,13 +94,12 @@
             left: 10%;
             right: 10%;
             height: 15px;
-            background: rgba(0,0,0,0.03);
+            background: rgba(0, 0, 0, 0.03);
             filter: blur(15px);
             border-radius: 50%;
             z-index: -1;
         }
 
-        /* Адаптивность для мобилок */
         @media (max-width: 480px) {
             .error-container {
                 padding: 40px 20px;
@@ -104,7 +107,7 @@
             .error-title {
                 font-size: 1.6rem;
             }
-            .error-title2 {
+            .error-code {
                 font-size: 1.9rem;
                 padding: 10px;
             }
@@ -114,13 +117,14 @@
 <body>
 
     <div class="error-container">
-        <h1 class="error-title2">Error: 404</h1>
+        <p class="error-code">Error: 404</p>
         <div class="error-img-wrap">
-            <img src="/images/IMG_4.png" alt="Error 404" class="error-img">
+            <img src="/images/error-404.png" alt="Иллюстрация страницы не найдена" class="error-img">
         </div>
-        
+
         <h1 class="error-title">Упс...<br>Походу, что-то упало</h1>
 
+        <a class="error-back-link" href="/">На главную</a>
     </div>
 
 </body>
